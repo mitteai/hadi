@@ -6,6 +6,32 @@ hadi ships your service straight to systemd boxes: the new version starts next t
 
 Each service describes itself in one small `deploy.json`. hadi handles the rest: deploys, rollbacks, config changes, logs, and automatic HTTPS.
 
+## Install
+
+```bash
+go install github.com/mitteai/hadi@latest
+```
+
+The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`; make sure it's on your `PATH`). hadi runs on your machine and in CI, never on the servers it deploys to.
+
+To update, install a newer version the same way:
+
+```bash
+go install github.com/mitteai/hadi@v0.2.0   # or @latest
+hadi version
+```
+
+In CI, pin a version so upgrades are deliberate:
+
+```yaml
+- run: go install github.com/mitteai/hadi@v0.1.0
+- run: $(go env GOPATH)/bin/hadi deploy
+  env:
+    HADI_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+```
+
+No Go? Clone and `make build`; the binary is `bin/hadi`.
+
 ## Quick start
 
 Add a `deploy.json` to your service repo:
