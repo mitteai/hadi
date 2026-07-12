@@ -14,13 +14,6 @@ go install github.com/mitteai/hadi@latest
 
 The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`; make sure it's on your `PATH`). hadi runs on your machine and in CI, never on the servers it deploys to.
 
-To update, install a newer version the same way:
-
-```bash
-go install github.com/mitteai/hadi@v0.2.0   # or @latest
-hadi version
-```
-
 In CI, pin a version so upgrades are deliberate:
 
 ```yaml
@@ -78,6 +71,7 @@ logs     [-f] [-n N]            follow the service's logs across boxes
 ssh      [box]                  shell into a box
 exec     '<cmd>'                run a command on every box
 ensure                          prepare a box (idempotent; usable from Packer)
+update                          update hadi itself to the latest release
 ```
 
 Inside a service repo, commands read `./deploy.json`. From anywhere else, use `-s <service>` with `--zone <zone>` (or set `HADI_ZONE`).
@@ -95,6 +89,7 @@ hadi rollback -s api --to 3f2c91a          # back to a specific one
 hadi logs -s api -f                        # follow logs across all boxes
 hadi exec -s api 'systemctl status caddy'  # run something everywhere
 hadi ls --zone example.com                 # the whole fleet, one table
+hadi update                                # get the newest hadi
 ```
 
 ## deploy.json reference

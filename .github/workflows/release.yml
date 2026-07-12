@@ -1,0 +1,35 @@
+name: release
+
+# Tag push (v*) → cross-compile, checksum, attach to a GitHub release.
+# `hadi update` consumes these assets; `go install` keeps working from the tag.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.6"
+
+      - name: Build all targets
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p dist
+          for t in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+            GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 \
+              go build -ldflags "-X main.version=$VERSION" -o "dist/hadi-${t%/*}-${t#*/}" .
+          done
+          (cd dist && sha256sum * > sha256sums.txt)
+
+      - name: Create release
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

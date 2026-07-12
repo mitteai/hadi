@@ -33,6 +33,7 @@ The only credential is the SSH key (HADI_SSH_KEY or --ssh-key).
   ssh      [box]                 interactive shell
   exec     '<cmd>'               run on every box, output per host
   ensure   [--config <path>]     converge caddy + dirs + site (idempotent)
+  update                         update hadi itself to the latest release
   version
 `
 
@@ -89,6 +90,8 @@ func main() {
 		cmdExec(*service, z, *host, *sshKey, rest[0])
 	case "ensure":
 		cmdEnsure(*configPath, *host, *sshKey)
+	case "update":
+		cmdUpdate()
 	case "version":
 		fmt.Println("hadi", version)
 	default:
