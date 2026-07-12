@@ -55,17 +55,3 @@ ensure                          prepare a box (idempotent; usable from Packer)
 ```
 
 Inside a service repo, commands read `./deploy.json`. From anywhere else, use `-s <service>` with `--zone <zone>` (or set `HADI_ZONE`).
-
-## How a deploy works
-
-```
-build → ship → start new version on the idle port → health-check it
-→ switch the proxy → confirm through the front door → drain the old one
-```
-
-If the new version never becomes healthy, nothing is switched and the old version keeps serving. Rollback is the same flow with an earlier release.
-
-## Entry modes
-
-- `"entry": {"port": 4002}`: internal service behind your load balancer; TLS terminates there.
-- `"entry": {"domain": "api.example.com"}`: public service; hadi's on-box Caddy terminates TLS with automatic certificates.
