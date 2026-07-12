@@ -55,3 +55,67 @@ ensure                          prepare a box (idempotent; usable from Packer)
 ```
 
 Inside a service repo, commands read `./deploy.json`. From anywhere else, use `-s <service>` with `--zone <zone>` (or set `HADI_ZONE`).
+
+Examples:
+
+```bash
+hadi deploy                                # from the service repo: build and ship
+hadi deploy --host 10.0.0.5                # one box only
+hadi env set -s api STRIPE_KEY=sk_live_x   # rotate one secret, zero downtime
+hadi env pull -s api > api.env             # snapshot before risky work
+hadi env push -s api api.env               # restore it
+hadi rollback -s api                       # back to the previous release
+hadi rollback -s api --to 3f2c91a          # back to a specific one
+hadi logs -s api -f                        # follow logs across all boxes
+hadi exec -s api 'systemctl status caddy'  # run something everywhere
+hadi ls --zone example.com                 # the whole fleet, one table
+```
+
+## deploy.json reference
+
+Only `name`, `zone`, `entry`, and `run.port_env` are required. Everything else has a default.
+
+| Key | What it is | Default |
+|---|---|---|
+| `name` | Service name. Owns `/opt/<name>`, `/etc/<name>/env`, and the unit names. | required |
+| `zone` | DNS zone the discovery records live under. | required |
+| `entry` | Where traffic enters: `{"port": N}` (internal, behind your LB) or `{"domain": "x.example.com"}` (public, automatic HTTPS). Exactly one. | required |
+| `hosts` | Explicit box list (DNS names or IPs). | resolve `<name>.boxes.<zone>` |
+| `build` | Shell command that produces the artifact. | none |
+| `artifact` | Path to the built binary, or a `.tgz` release unpacked per deploy. | required for deploy |
+| `colors` | The two internal ports the service alternates between. | port entry: front+1, front+2; domain entry: 4001, 4002 |
+| `health` | HTTP path polled to verify a new version. | `/healthz` |
+| `files` | Extra files to ship: `{"local/path": "/remote/path"}`. | none |
+| `extra_units` | Directory of additional systemd units to ship (timers, helpers). | none |
+| `run.port_env` | Env var your service reads its listen port from. Must not appear in the env file. | required |
+| `run.user` | Unix user the service runs as. | `name` |
+| `run.exec` | Command the unit starts. | `/opt/<name>/bin/<name>` |
+| `run.after`, `run.requires` | Extra systemd ordering and dependencies. | none |
+| `run.stop_timeout_sec` | How long a draining old version may keep running. | 90 |
+| `run.ready_timeout_sec` | How long to wait for a new version to become healthy. | 60 |
+| `run.ambient_caps` | Kernel capabilities (e.g. `CAP_NET_ADMIN`). | none |
+| `run.read_write_paths` | Writable paths under the hardened unit. | none |
+| `run.env_extra` | Fixed env vars baked into the unit. | none |
+| `run.delegate` | cgroup controllers to delegate, e.g. `["cpu", "io", "memory", "pids"]`. | none |
+| `run.unit_file` | Hand-written unit template; disables unit generation. | generated |
+| `entry.body_max` | Request body size limit at the proxy. | proxy default |
+| `entry.proxy_timeout` | Read/write timeout at the proxy, for long requests. | proxy default |
+| `hooks.before_start` | Runs on each box before the new version starts (e.g. refresh a sidecar). | none |
+| `hooks.once_before_flip` | Runs once per deploy, after verification, before traffic moves (e.g. migrations). | none |
+| `hooks.after_flip` | Runs on each box after traffic has moved. | none |
+
+Hooks must be idempotent: rerunning a failed deploy reruns them.
+
+## How a deploy works
+
+```
+build → ship → start new version on the idle port → health-check it
+→ switch the proxy → confirm through the front door → drain the old one
+```
+
+If the new version never becomes healthy, nothing is switched and the old version keeps serving. Rollback is the same flow with an earlier release.
+
+## Entry modes
+
+- `"entry": {"port": 4002}`: internal service behind your load balancer; TLS terminates there.
+- `"entry": {"domain": "api.example.com"}`: public service; hadi's on-box Caddy terminates TLS with automatic certificates.
