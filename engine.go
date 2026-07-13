@@ -117,9 +117,11 @@ fi`, c.Run.User, c.Name)
 		return fmt.Errorf("ensure: %w\n%s", err, out)
 	}
 
-	// Main Caddyfile becomes the import shim unless it already is one.
+	// Main Caddyfile is hadi-owned: converge it whenever it differs from the
+	// blessed content (first migration, or a template update like the
+	// trusted_proxies addition), not only when the import line is missing.
 	main, _ := cl.Run("cat /etc/caddy/Caddyfile 2>/dev/null || true")
-	if !strings.Contains(main, "import /etc/caddy/hadi/") {
+	if strings.TrimSpace(main) != strings.TrimSpace(caddy.MainCaddyfile) {
 		if err := cl.Push([]byte(caddy.MainCaddyfile), "/etc/caddy/Caddyfile", "0644"); err != nil {
 			return err
 		}
