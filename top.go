@@ -477,15 +477,29 @@ func (t *top) render() {
 		b.WriteString("\x1b[K\r\n")
 	}
 
-	// bar renders a pane title as a full-width rule; inverse when focused.
-	bar := func(title string, focused bool) string {
-		style := cDim
-		marker := "  "
+	// pane draws a bordered box: heavy bright border when focused, light dim
+	// border when not. The border IS the focus indicator.
+	inner := w - 4 // border + one space padding each side
+	pane := func(title string, focused bool, content []string, innerH int) {
+		tl, tr, bl, br, hz, vt, style := "┌", "┐", "└", "┘", "─", "│", cDim
 		if focused {
-			style = cInv + cBold
-			marker = "▶ "
+			tl, tr, bl, br, hz, vt, style = "┏", "┓", "┗", "┛", "━", "┃", cBold
+			title = "▶ " + title
 		}
-		return style + pad(" "+marker+title+" ", w) + cReset
+		head := style + tl + hz + " " + title + " "
+		fill := w - visLen(head) - 1
+		if fill < 0 {
+			fill = 0
+		}
+		line(head + strings.Repeat(hz, fill) + tr + cReset)
+		for i := 0; i < innerH; i++ {
+			var row string
+			if i < len(content) {
+				row = content[i]
+			}
+			line(style + vt + cReset + " " + pad(row, inner) + " " + style + vt + cReset)
+		}
+		line(style + bl + strings.Repeat(hz, w-2) + br + cReset)
 	}
 
 	// Top pane content (list or vitals).
@@ -502,9 +516,9 @@ func (t *top) render() {
 				}
 			}
 			if i == t.selSvc {
-				rows = append(rows, cInv+pad(fmt.Sprintf("  %-24s %2d box  %s", trunc(s.name, 24), len(s.boxes), health), w)+cReset)
+				rows = append(rows, cInv+pad(fmt.Sprintf(" %-24s %2d box  %s", trunc(s.name, 24), len(s.boxes), health), inner)+cReset)
 			} else {
-				rows = append(rows, pad(fmt.Sprintf("  %-24s %2d box  ", trunc(s.name, 24), len(s.boxes)), w-len(health)-1)+hc+health+cReset+" ")
+				rows = append(rows, pad(fmt.Sprintf(" %-24s %2d box  ", trunc(s.name, 24), len(s.boxes)), inner-len(health))+hc+health+cReset)
 			}
 		}
 	case viewService:
@@ -515,22 +529,23 @@ func (t *top) render() {
 				hc = cRed
 			}
 			if i == t.selBox {
-				rows = append(rows, cInv+pad(fmt.Sprintf("  %-20s live @%-6d %-10s %s", trunc(bx.addr, 20), bx.live, bx.sha, bx.health), w)+cReset)
+				rows = append(rows, cInv+pad(fmt.Sprintf(" %-20s live @%-6d %-10s %s", trunc(bx.addr, 20), bx.live, bx.sha, bx.health), inner)+cReset)
 			} else {
-				rows = append(rows, pad(fmt.Sprintf("  %-20s live @%-6d %-10s ", trunc(bx.addr, 20), bx.live, bx.sha), w-len(bx.health)-1)+hc+bx.health+cReset+" ")
+				rows = append(rows, pad(fmt.Sprintf(" %-20s live @%-6d %-10s ", trunc(bx.addr, 20), bx.live, bx.sha), inner-len(bx.health))+hc+bx.health+cReset)
 			}
 		}
 	case viewBox:
 		bx := t.services[t.selSvc].boxes[t.selBox]
 		listTitle = "VITALS · " + t.services[t.selSvc].name + " · " + bx.addr
-		rows = append(rows, pad(fmt.Sprintf("  sha %s · live @%d · health %s", bx.sha, bx.live, bx.health), w))
+		rows = append(rows, pad(fmt.Sprintf(" sha %s · live @%d · health %s", bx.sha, bx.live, bx.health), inner))
+		rows = append(rows, "")
 		for _, v := range t.vitals {
-			rows = append(rows, pad("  "+v, w))
+			rows = append(rows, pad(" "+v, inner))
 		}
 	}
 
-	// Layout: list pane sized to content, capped at a third of the screen.
-	maxList := (h - 5) / 3
+	// Layout: borders cost 2 rows per pane + 1 gap + 1 footer = 6.
+	maxList := (h - 6) / 3
 	if maxList < 3 {
 		maxList = 3
 	}
@@ -538,9 +553,13 @@ func (t *top) render() {
 	if listH > maxList {
 		listH = maxList
 	}
-
-	// Log pane: everything else.
-	logH := h - listH - 4 // header-less: 2 bars + footer + spare
+	if listH < 2 {
+		listH = 2
+	}
+	logH := h - listH - 7
+	if logH < 3 {
+		logH = 3
+	}
 
 	var vis []logLine
 	for _, l := range t.logs {
@@ -572,21 +591,12 @@ func (t *top) render() {
 		logTitle += fmt.Sprintf(" · ↑%d", t.logOff)
 	}
 
-	// Draw: list bar, list rows, log bar, log rows, footer.
-	line(bar(listTitle, t.focus == 0))
-	for i := 0; i < listH; i++ {
-		if i < len(rows) {
-			line(rows[i])
-		} else {
-			line("")
-		}
-	}
-	line(bar(logTitle, t.focus == 1))
+	var logRows []string
 	pad0 := logH - len(window)
 	for i := 0; i < logH; i++ {
 		li := i - pad0
 		if li < 0 || li >= len(window) {
-			line("")
+			logRows = append(logRows, "")
 			continue
 		}
 		ll := window[li]
@@ -597,8 +607,12 @@ func (t *top) render() {
 		case viewService:
 			prefix = cDim + "[" + lastOctet(ll.box) + "]" + cReset + " "
 		}
-		line(prefix + trunc(ll.text, w-visLen(prefix)))
+		logRows = append(logRows, prefix+trunc(ll.text, inner-visLen(prefix)))
 	}
+
+	pane(listTitle, t.focus == 0, rows, listH)
+	line("")
+	pane(logTitle, t.focus == 1, logRows, logH)
 
 	foot := " tab focus · enter drill · esc back · ↑↓ move/scroll · / filter · c clear · q quit"
 	if t.typing {
