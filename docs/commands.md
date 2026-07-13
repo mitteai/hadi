@@ -1,6 +1,6 @@
 # Commands
 
-[deploy](#deploy) · [check](#check) · [env](#env) · [releases](#releases) · [rollback](#rollback) · [status](#status) · [ls](#ls) · [boxes](#boxes) · [logs](#logs) · [ssh](#ssh) · [exec](#exec) · [ensure](#ensure) · [update](#update) · [version](#version)
+[deploy](#deploy) · [check](#check) · [env](#env) · [releases](#releases) · [rollback](#rollback) · [status](#status) · [ls](#ls) · [boxes](#boxes) · [logs](#logs) · [ssh](#ssh) · [exec](#exec) · [top](#top) · [ensure](#ensure) · [update](#update) · [version](#version)
 
 ## Conventions
 
@@ -206,6 +206,34 @@ hadi exec -s api --host 10.0.0.5 'df -h /var'
 | `'<command>'` | The command, quoted as one argument. | `hadi exec -s api 'uptime -p'` |
 | `-s <service>` | Which service's boxes. | `hadi exec -s worker 'free -m'` |
 | `--host <addr>` | One box only. | `hadi exec -s api --host 10.0.0.5 'ls /opt/api'` |
+
+## top
+
+```
+hadi top [-s <service>] [--zone <zone>]
+```
+
+An htop-like live dashboard. Three views, one shared log pane:
+
+- **Fleet**: services on the left (box count, health), merged live logs from every service on the right.
+- **Service** (enter on a service): its boxes on the left (address, live color, health), logs from that service's boxes.
+- **Box** (enter on a box): vitals on the left (load, memory, disk, uptime, refreshed every 5s), that box's logs.
+
+Logs stream from both colors' journals on every box, so a deploy's flip never silences the pane. The fleet state refreshes every 10 seconds.
+
+Keys: `enter`/`→` drill in · `esc`/`←` back · `↑↓`/`jk` select · `/` filter the logs live (substring, case-insensitive) · `c` clear filter · `u`/`d` scroll the log tail · `q` back or quit.
+
+```bash
+hadi top                     # in a repo or with HADI_ZONE: the whole fleet
+hadi top -s api              # open directly on one service
+hadi top --zone example.com
+```
+
+| Flag | What it does | Example |
+|---|---|---|
+| `-s <service>` | Open directly in that service's view. | `hadi top -s api` |
+| `--zone <zone>` | Zone to watch. Falls back to a local `deploy.json`, then `HADI_ZONE`. | `hadi top --zone example.com` |
+| `--ssh-key <path>` | Key for state, logs, and vitals. | `hadi top --ssh-key ./key` |
 
 ## ensure
 
