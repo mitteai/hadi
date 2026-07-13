@@ -44,7 +44,16 @@ Add a check on pull requests so config errors surface before merge:
 
 ## Pin the version
 
-`@v0.2.0`, never `@latest`. A hadi release must not be able to change your deploys until you bump the pin in a reviewable one-line diff. Workstations can ride `hadi update`; CI upgrades deliberately.
+Pin a version so upgrades are deliberate. The minimal form:
+
+```yaml
+- run: go install github.com/mitteai/hadi@v0.3.0
+- run: $(go env GOPATH)/bin/hadi deploy
+  env:
+    HADI_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+```
+
+Never `@latest`: a hadi release must not be able to change your deploys until you bump the pin in a reviewable one-line diff. Workstations can ride `hadi update`; CI upgrades deliberately.
 
 ## Any other CI
 

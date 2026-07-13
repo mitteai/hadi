@@ -31,14 +31,7 @@ go install github.com/mitteai/hadi@latest
 
 The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`; make sure it's on your `PATH`). hadi runs on your machine and in CI, never on the servers it deploys to.
 
-In CI, pin a version so upgrades are deliberate:
-
-```yaml
-- run: go install github.com/mitteai/hadi@v0.1.0
-- run: $(go env GOPATH)/bin/hadi deploy
-  env:
-    HADI_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-```
+For CI setup, see [docs/ci.md](docs/ci.md).
 
 ## Quick start
 
