@@ -67,17 +67,17 @@ func cmdBoxes(service, zoneFlag, sshKeyFlag string, quiet bool) {
 	if err != nil {
 		ui.Fail("%v", err)
 	}
-	fmt.Printf("%-15s %-18s %-6s %-9s %s\n", "SERVICE", "BOX", "LIVE", "SHA", "HEALTH")
+	fmt.Printf("%-18s %-15s %-6s %-9s %s\n", "BOX", "SERVICE", "LIVE", "SHA", "HEALTH")
 	for _, name := range services {
 		for _, b := range resolve(name) {
 			cl, err := sshx.Dial(b, key)
 			if err != nil {
-				fmt.Printf("%-15s %-18s unreachable: %v\n", name, b, err)
+				fmt.Printf("%-18s %-15s unreachable: %v\n", b, name, err)
 				continue
 			}
 			st, _ := readState(cl, name)
 			if st == nil || st.Config == nil {
-				fmt.Printf("%-15s %-18s not deployed by hadi yet\n", name, b)
+				fmt.Printf("%-18s %-15s not deployed by hadi yet\n", b, name)
 				cl.Close()
 				continue
 			}
@@ -87,7 +87,7 @@ func cmdBoxes(service, zoneFlag, sshKeyFlag string, quiet bool) {
 			if _, err := cl.Run(healthCmd(st.Config, active)); err != nil {
 				health = "UNHEALTHY"
 			}
-			fmt.Printf("%-15s %-18s %-6d %-9s %s\n", name, b, active, st.SHA, health)
+			fmt.Printf("%-18s %-15s %-6d %-9s %s\n", b, name, active, st.SHA, health)
 			cl.Close()
 		}
 	}

@@ -1,5 +1,7 @@
 # Commands
 
+[deploy](#deploy) · [check](#check) · [env](#env) · [releases](#releases) · [rollback](#rollback) · [status](#status) · [ls](#ls) · [boxes](#boxes) · [logs](#logs) · [ssh](#ssh) · [exec](#exec) · [ensure](#ensure) · [update](#update) · [version](#version)
+
 ## Conventions
 
 - Inside a service repo, commands read `./deploy.json`. From anywhere else, `-s <service>` resolves the service through DNS and reads its config from the box itself.
@@ -135,7 +137,7 @@ Every hadi-managed service: box count, live color, sha, health, entry. Resolved 
 hadi boxes [-s <service>] [--zone <zone>] [-q]
 ```
 
-Where a service lives, in the same table style as `hadi ls` but one row per box: service, address, live color, sha, health. Bare in a service repo: that service's boxes. With an explicit `--zone`: the whole fleet, even from inside a repo.
+Where a service lives, in the same table style as `hadi ls` but one row per box: address first, then service, live color, sha, health. Bare in a service repo: that service's boxes. With an explicit `--zone`: the whole fleet, even from inside a repo.
 
 `-q` prints plain addresses, one per line, with no SSH at all: instant, key-free, made for feeding other commands.
 
