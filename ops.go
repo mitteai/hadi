@@ -56,6 +56,12 @@ func cmdStatus(service, zone, hostFlag, sshKeyFlag string) {
 			prev = "none"
 		}
 		ui.Say("  health     : %s (%s)  prev: %s  (hadi rollback restores)", health, c.Health, prev)
+		// Box vitals: kernel counters, free to read; the cost is the SSH
+		// round-trip, not the box.
+		vitals, verr := cl.Run(`L=$(cut -d" " -f1-3 /proc/loadavg); C=$(nproc); M=$(free -m | awk '/^Mem:/{printf "%d/%dM",$3,$2}'); D1=$(df -h / | awk 'NR==2{print $5}'); D2=$(df -h /var 2>/dev/null | awk 'NR==2{print $5}'); echo "load $L ($C cores) · mem $M · disk / $D1 · /var $D2"`)
+		if verr == nil && vitals != "" {
+			ui.Say("  vitals     : %s", vitals)
+		}
 	}
 }
 

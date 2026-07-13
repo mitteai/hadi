@@ -109,7 +109,7 @@ hadi rollback -s api --to 3f2c91a    # a specific one (see hadi releases)
 hadi status [-s <service>]
 ```
 
-Per box: live color (read from the proxy, the source of truth), deployed sha, when, by whom, health right now, and the rollback target.
+Per box: live color (read from the proxy, the source of truth), deployed sha, when, by whom, health right now, the rollback target, and box vitals (load, memory, disk). Vitals are kernel counters read over the same SSH session; the cost is the round-trip, never the service.
 
 | Flag | What it does | Example |
 |---|---|---|
