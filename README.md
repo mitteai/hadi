@@ -45,7 +45,7 @@ hadi check     # validate the config, print the plan
 hadi deploy    # build, ship, verify, switch traffic
 ```
 
-That's a live HTTPS service. Certificates are issued and renewed automatically.
+That's a live HTTPS service. Certificates are issued and renewed automatically. Full walkthrough with a hello-world server: [docs/quick-start.md](docs/quick-start.md).
 
 ## What you need
 
@@ -127,6 +127,7 @@ Hooks must be idempotent: rerunning a failed deploy reruns them.
 
 ## Docs
 
+- [Quick start](docs/quick-start.md): hello world to production, end to end
 - [Requirements](docs/requirements.md): what boxes need, with a preflight checklist
 - [Commands](docs/commands.md): every command, its flags, and examples
 - [deploy.json](docs/config.md): every option, with defaults and examples
