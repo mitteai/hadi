@@ -130,4 +130,6 @@ Hooks must be idempotent: rerunning a failed deploy reruns them.
 - [Commands](docs/commands.md): every command, its flags, and examples
 - [deploy.json](docs/config.md): every option, with defaults and examples
 - [CI](docs/ci.md): the complete workflow, one secret, version pinning
+- [DNS and inventory](docs/dns.md): the two record families and why DNS is the registry
+- [Terraform](docs/terraform.md): the boundary, a complete example, what cloud-init should not do
 - [How it works](docs/how-it-works.md): the lifecycle, colors, discovery, and where truth lives
