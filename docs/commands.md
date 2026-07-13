@@ -221,7 +221,9 @@ An htop-like live dashboard. Three views, one shared log pane:
 
 Logs stream from both colors' journals on every box, so a deploy's flip never silences the pane. The fleet state refreshes every 10 seconds.
 
-Keys: `enter`/`→` drill in · `esc`/`←` back · `↑↓`/`jk` select · `/` filter the logs live (substring, case-insensitive) · `c` clear filter · `u`/`d` scroll the log tail · `q` back or quit.
+The screen splits horizontally: the list pane on top, the log pane below, with the focused pane marked by an inverse title bar and a ▶. `tab` moves focus; `↑↓`/`jk` move the selection when the list has focus and scroll the logs when the log pane does.
+
+Keys: `tab` switch focus · `enter`/`→` drill in · `esc`/`←` back · `↑↓`/`jk` move or scroll · `/` filter the logs live (substring, case-insensitive) · `c` clear filter · `q` back or quit.
 
 ```bash
 hadi top                     # in a repo or with HADI_ZONE: the whole fleet

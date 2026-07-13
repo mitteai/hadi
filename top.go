@@ -64,6 +64,7 @@ type top struct {
 	status   string
 
 	view               int
+	focus              int // 0 = list pane, 1 = log pane
 	selSvc, selBox     int
 	filter             string
 	typing             bool
@@ -167,6 +168,23 @@ func (t *top) handle(b []byte) bool {
 			continue
 		}
 
+		up := func() {
+			if t.focus == 1 {
+				t.logOff++
+			} else {
+				t.moveSel(-1)
+			}
+		}
+		down := func() {
+			if t.focus == 1 {
+				if t.logOff > 0 {
+					t.logOff--
+				}
+			} else {
+				t.moveSel(1)
+			}
+		}
+
 		switch {
 		case c == 3: // ctrl-c
 			return true
@@ -175,12 +193,14 @@ func (t *top) handle(b []byte) bool {
 				return true
 			}
 			t.back()
+		case c == '\t':
+			t.focus = 1 - t.focus
 		case c == 0x1b && i+2 < len(b) && b[i+1] == '[':
 			switch b[i+2] {
 			case 'A':
-				t.moveSel(-1)
+				up()
 			case 'B':
-				t.moveSel(1)
+				down()
 			case 'C':
 				t.drill()
 			case 'D':
@@ -190,11 +210,13 @@ func (t *top) handle(b []byte) bool {
 		case c == 0x1b:
 			t.back()
 		case c == 'k':
-			t.moveSel(-1)
+			up()
 		case c == 'j':
-			t.moveSel(1)
+			down()
 		case c == '\r':
-			t.drill()
+			if t.focus == 0 {
+				t.drill()
+			}
 		case c == '/':
 			t.typing, t.draft = true, t.filter
 		case c == 'c':
@@ -246,6 +268,7 @@ func (t *top) back() {
 	case viewService:
 		t.view = viewFleet
 	}
+	t.focus = 0
 }
 
 func clamp(v, n int) int {
@@ -443,34 +466,34 @@ func (t *top) render() {
 	defer t.mu.Unlock()
 
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || w < 40 || h < 6 {
+	if err != nil || w < 40 || h < 8 {
 		return
 	}
-	rightW := w - leftW - 3
 
 	var b strings.Builder
 	b.WriteString("\x1b[H")
-
 	line := func(s string) {
 		b.WriteString(s)
 		b.WriteString("\x1b[K\r\n")
 	}
 
-	// Header
-	title := " hadi top · " + t.zone
-	switch t.view {
-	case viewService:
-		title += " · " + t.services[t.selSvc].name
-	case viewBox:
-		title += " · " + t.services[t.selSvc].name + " · " + t.services[t.selSvc].boxes[t.selBox].addr
+	// bar renders a pane title as a full-width rule; inverse when focused.
+	bar := func(title string, focused bool) string {
+		style := cDim
+		marker := "  "
+		if focused {
+			style = cInv + cBold
+			marker = "▶ "
+		}
+		return style + pad(" "+marker+title+" ", w) + cReset
 	}
-	line(cBold + pad(title, w) + cReset)
 
-	// Left pane rows
-	var left []string
+	// Top pane content (list or vitals).
+	var listTitle string
+	var rows []string
 	switch t.view {
 	case viewFleet:
-		left = append(left, cDim+pad(" SERVICES", leftW)+cReset)
+		listTitle = "SERVICES"
 		for i, s := range t.services {
 			health, hc := "ok", cGreen
 			for _, bx := range s.boxes {
@@ -479,87 +502,107 @@ func (t *top) render() {
 				}
 			}
 			if i == t.selSvc {
-				row := fmt.Sprintf(" %-16s %2d box %s", trunc(s.name, 16), len(s.boxes), health)
-				left = append(left, cInv+pad(row, leftW)+cReset)
+				rows = append(rows, cInv+pad(fmt.Sprintf("  %-24s %2d box  %s", trunc(s.name, 24), len(s.boxes), health), w)+cReset)
 			} else {
-				base := fmt.Sprintf(" %-16s %2d box ", trunc(s.name, 16), len(s.boxes))
-				left = append(left, pad(base, leftW-len(health)-1)+hc+health+cReset+" ")
+				rows = append(rows, pad(fmt.Sprintf("  %-24s %2d box  ", trunc(s.name, 24), len(s.boxes)), w-len(health)-1)+hc+health+cReset+" ")
 			}
 		}
 	case viewService:
-		left = append(left, cDim+pad(" BOXES · "+t.services[t.selSvc].name, leftW)+cReset)
+		listTitle = "BOXES · " + t.services[t.selSvc].name
 		for i, bx := range t.services[t.selSvc].boxes {
 			hc := cGreen
 			if bx.health != "ok" {
 				hc = cRed
 			}
 			if i == t.selBox {
-				row := fmt.Sprintf(" %-17s @%d %s", trunc(bx.addr, 17), bx.live, bx.health)
-				left = append(left, cInv+pad(row, leftW)+cReset)
+				rows = append(rows, cInv+pad(fmt.Sprintf("  %-20s live @%-6d %-10s %s", trunc(bx.addr, 20), bx.live, bx.sha, bx.health), w)+cReset)
 			} else {
-				base := fmt.Sprintf(" %-17s @%d ", trunc(bx.addr, 17), bx.live)
-				left = append(left, pad(base, leftW-len(bx.health)-1)+hc+bx.health+cReset+" ")
+				rows = append(rows, pad(fmt.Sprintf("  %-20s live @%-6d %-10s ", trunc(bx.addr, 20), bx.live, bx.sha), w-len(bx.health)-1)+hc+bx.health+cReset+" ")
 			}
 		}
 	case viewBox:
 		bx := t.services[t.selSvc].boxes[t.selBox]
-		left = append(left, cDim+pad(" VITALS · "+bx.addr, leftW)+cReset)
-		left = append(left, pad(fmt.Sprintf(" sha %s · live @%d", bx.sha, bx.live), leftW))
-		left = append(left, "")
+		listTitle = "VITALS · " + t.services[t.selSvc].name + " · " + bx.addr
+		rows = append(rows, pad(fmt.Sprintf("  sha %s · live @%d · health %s", bx.sha, bx.live, bx.health), w))
 		for _, v := range t.vitals {
-			left = append(left, pad(" "+v, leftW))
+			rows = append(rows, pad("  "+v, w))
 		}
 	}
 
-	// Right pane: filtered log tail
+	// Layout: list pane sized to content, capped at a third of the screen.
+	maxList := (h - 5) / 3
+	if maxList < 3 {
+		maxList = 3
+	}
+	listH := len(rows)
+	if listH > maxList {
+		listH = maxList
+	}
+
+	// Log pane: everything else.
+	logH := h - listH - 4 // header-less: 2 bars + footer + spare
+
 	var vis []logLine
 	for _, l := range t.logs {
 		if t.matches(l) {
 			vis = append(vis, l)
 		}
 	}
-	rows := h - 3
 	end := len(vis) - t.logOff
 	if end < 0 {
 		end = 0
 	}
-	start := end - rows
+	start := end - logH
 	if start < 0 {
 		start = 0
 	}
 	window := vis[start:end]
 
-	for i := 0; i < rows; i++ {
-		var l, r string
-		if i < len(left) {
-			l = left[i]
-		} else {
-			l = strings.Repeat(" ", leftW)
-		}
-		li := i - (rows - len(window))
-		if li >= 0 && li < len(window) {
-			ll := window[li]
-			prefix := ""
-			switch t.view {
-			case viewFleet:
-				prefix = cDim + "[" + trunc(ll.svc, 12) + "]" + cReset + " "
-			case viewService:
-				prefix = cDim + "[" + lastOctet(ll.box) + "]" + cReset + " "
-			}
-			r = prefix + trunc(ll.text, rightW-visLen(prefix))
-		}
-		line(l + cDim + " │ " + cReset + r)
+	logTitle := "LOGS · all services"
+	switch t.view {
+	case viewService:
+		logTitle = "LOGS · " + t.services[t.selSvc].name + " (all boxes)"
+	case viewBox:
+		logTitle = "LOGS · " + t.services[t.selSvc].boxes[t.selBox].addr
 	}
-
-	// Footer
-	foot := " enter drill · esc back · / filter · c clear · u/d scroll · q quit"
-	if t.typing {
-		foot = " filter: " + t.draft + "▌"
-	} else if t.filter != "" {
-		foot = fmt.Sprintf(" filter: %q (%d lines) · c to clear · %s", t.filter, len(vis), "q quit")
+	if t.filter != "" {
+		logTitle += fmt.Sprintf(" · filter %q (%d)", t.filter, len(vis))
 	}
 	if t.logOff > 0 {
-		foot += fmt.Sprintf(" · scrolled %d", t.logOff)
+		logTitle += fmt.Sprintf(" · ↑%d", t.logOff)
+	}
+
+	// Draw: list bar, list rows, log bar, log rows, footer.
+	line(bar(listTitle, t.focus == 0))
+	for i := 0; i < listH; i++ {
+		if i < len(rows) {
+			line(rows[i])
+		} else {
+			line("")
+		}
+	}
+	line(bar(logTitle, t.focus == 1))
+	pad0 := logH - len(window)
+	for i := 0; i < logH; i++ {
+		li := i - pad0
+		if li < 0 || li >= len(window) {
+			line("")
+			continue
+		}
+		ll := window[li]
+		prefix := ""
+		switch t.view {
+		case viewFleet:
+			prefix = cDim + "[" + trunc(ll.svc, 12) + "]" + cReset + " "
+		case viewService:
+			prefix = cDim + "[" + lastOctet(ll.box) + "]" + cReset + " "
+		}
+		line(prefix + trunc(ll.text, w-visLen(prefix)))
+	}
+
+	foot := " tab focus · enter drill · esc back · ↑↓ move/scroll · / filter · c clear · q quit"
+	if t.typing {
+		foot = " filter: " + t.draft + "▌   (enter apply · esc cancel)"
 	}
 	b.WriteString(cInv + pad(foot, w) + cReset + "\x1b[K")
 
