@@ -38,7 +38,14 @@ func Render(c *config.Config) string {
 	for _, k := range sortedKeys(c.Run.EnvExtra) {
 		w("Environment=%s=%s", k, c.Run.EnvExtra[k])
 	}
-	w("ExecStart=%s", c.Run.Exec)
+	// systemd requires an absolute ExecStart. A relative exec (release
+	// tarballs: "bin/server") is anchored to the current-release symlink,
+	// which the deploy repoints before restarting the color.
+	exec := c.Run.Exec
+	if !strings.HasPrefix(exec, "/") {
+		exec = fmt.Sprintf("/opt/%s/current/%s", c.Name, exec)
+	}
+	w("ExecStart=%s", exec)
 	w("WorkingDirectory=/opt/%s/current", c.Name)
 	w("Restart=always")
 	w("RestartSec=2")

@@ -74,3 +74,22 @@ func TestRenderStopTimeout(t *testing.T) {
 		t.Error("stop timeout not rendered")
 	}
 }
+
+// systemd rejects relative ExecStart. Release tarballs declare exec relative
+// to the unpacked release ("bin/server"); the render must anchor it to the
+// current-release symlink. Absolute paths (the binary default) pass through.
+func TestRenderRelativeExecAnchored(t *testing.T) {
+	c := &config.Config{Name: "mitte", Zone: "z",
+		Run:   config.Run{PortEnv: "PORT", Exec: "bin/server"},
+		Entry: config.Entry{Port: 4100}}
+	c.ApplyDefaults()
+	if u := Render(c); !strings.Contains(u, "ExecStart=/opt/mitte/current/bin/server") {
+		t.Errorf("relative exec not anchored:\n%s", u)
+	}
+
+	c2 := &config.Config{Name: "socket", Zone: "z", Run: config.Run{PortEnv: "PORT"}, Entry: config.Entry{Port: 4006}}
+	c2.ApplyDefaults()
+	if u := Render(c2); !strings.Contains(u, "ExecStart=/opt/socket/bin/socket") {
+		t.Error("default absolute exec must pass through unchanged")
+	}
+}
