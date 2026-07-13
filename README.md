@@ -124,3 +124,10 @@ Only `name`, `zone`, `entry`, and `run.port_env` are required. Everything else h
 | `hooks.after_flip` | Runs on each box after traffic has moved. | none |
 
 Hooks must be idempotent: rerunning a failed deploy reruns them.
+
+## Docs
+
+- [Commands](docs/commands.md): every command, its flags, and examples
+- [deploy.json](docs/config.md): every option, with defaults and examples
+- [CI](docs/ci.md): the complete workflow, one secret, version pinning
+- [How it works](docs/how-it-works.md): the lifecycle, colors, discovery, and where truth lives

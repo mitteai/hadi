@@ -12,11 +12,15 @@ build-linux:
 test:
 	@go vet ./... && go test ./...
 
+## man: Install the man page (may need sudo). Then: man hadi
+man:
+	@install -d /usr/local/share/man/man1 && install -m 0644 man/hadi.1 /usr/local/share/man/man1/hadi.1 && echo "installed · try: man hadi"
+
 ## clean: Remove build output.
 clean:
 	@rm -rf bin
 
-.PHONY: build build-linux test clean help
+.PHONY: build build-linux test man clean help
 all: help
 help: Makefile
 	@echo

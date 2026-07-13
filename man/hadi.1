@@ -1,0 +1,202 @@
+.TH HADI 1 "July 2026" "hadi" "hadi manual"
+.SH NAME
+hadi \- zero-downtime deploys for plain Linux services
+.SH SYNOPSIS
+.B hadi
+.I command
+.RI [ options ]
+.RI [ arguments ]
+.SH DESCRIPTION
+.B hadi
+deploys services that run as plain processes under systemd. Every deploy is
+zero-downtime: the new version starts next to the old one on an idle port,
+gets health-checked, and only then receives traffic through an on-box Caddy
+proxy. If verification fails, the old version never stops serving.
+.PP
+Each service is described by a
+.B deploy.json
+in its repository. hadi runs on your machine or in CI and talks to boxes over
+SSH; nothing is installed on the servers except the service itself.
+.SH GLOBAL OPTIONS
+These apply to every command that touches a service.
+.TP
+.BI \-s " service"
+Target a service by name from outside its repository. Boxes are resolved via
+DNS and the service's configuration is read from the box itself. Inside a
+repository, commands read
+.B ./deploy.json
+and \-s is unnecessary.
+.TP
+.BI \-\-zone " zone"
+DNS zone for discovery. Precedence: this flag, then the
+.B zone
+of a deploy.json in the current directory, then the
+.B HADI_ZONE
+environment variable.
+.TP
+.BI \-\-host " address"
+Restrict the command to a single box, bypassing discovery.
+.TP
+.BI \-\-ssh\-key " path"
+SSH private key. Defaults to
+.B HADI_SSH_KEY
+(key contents or a path), then ~/.ssh/id_ed25519.
+.SH COMMANDS
+.TP
+.B deploy [\-\-skip\-build]
+Run the full lifecycle: build the artifact (skipped with
+.BR \-\-skip\-build ),
+ship it with any configured files and units, start the new version on the
+idle port, poll its health endpoint, flip the proxy, confirm through the
+front door, and drain the old version without blocking. A failed
+verification stops the new version and leaves the old one serving.
+.TP
+.B check
+Validate deploy.json and print the plan: targets, ports, the generated
+systemd unit. Touches nothing. Run it in CI on pull requests.
+.TP
+.B env edit
+Pull the box's environment file into $EDITOR; saving ships it back and
+applies it with a zero-downtime flip. Aborting changes nothing.
+.TP
+.BI "env set " KEY=VALUE ...
+Patch one or more variables in place, then flip.
+.TP
+.BI "env unset " KEY ...
+Remove variables, then flip.
+.TP
+.BI "env push " file
+Replace the service's entire environment from a local file, then flip.
+A full replace, never a merge.
+.TP
+.B env pull [file]
+Fetch the box's environment to stdout or a file. Reads every box and warns
+loudly if they differ.
+.TP
+.B releases
+The deploy ledger per box: sha, timestamp, color, deployer. Depth matches
+artifact retention (the last 5 releases stay on each box).
+.TP
+.B rollback [\-\-to \fIsha\fR]
+Restore an earlier artifact (default: the previous one), verify it, flip.
+Identical safety to a deploy.
+.TP
+.B status
+Per box: live color, deployed sha, when, by whom, health, and the rollback
+target.
+.TP
+.B ls
+Every hadi-managed service at a glance, resolved from the
+.B _hadi
+TXT record and each box's own state. Needs a zone (see \-\-zone).
+.TP
+.B logs [\-f] [\-n \fIlines\fR] [\-\-unit \fIname\fR]
+journalctl for the live color across all boxes, host-prefixed.
+.B \-f
+follows;
+.B \-\-unit
+targets an auxiliary unit (a timer, a helper) instead of the service.
+.TP
+.B ssh [box]
+Interactive shell on a box. With one box, no argument needed.
+.TP
+.BI "exec " command
+Run a command on every box as root, printing output per host.
+.TP
+.B ensure [\-\-config \fIpath\fR]
+Converge hadi's own layer on the boxes: Caddy, its site config, directories.
+Idempotent; runs implicitly on every deploy. Usable as a Packer provisioner
+step to pre-bake boxes.
+.TP
+.B update
+Replace this binary with the latest GitHub release, verified against its
+checksums. For workstations; CI pins a version on purpose.
+.TP
+.B version
+Print the version.
+.SH EXAMPLES
+Deploy from a service repository:
+.PP
+.nf
+    hadi deploy
+.fi
+.PP
+Deploy to one box only, using an existing artifact:
+.PP
+.nf
+    hadi deploy --host 10.0.0.5 --skip-build
+.fi
+.PP
+Rotate a secret with zero downtime:
+.PP
+.nf
+    hadi env set -s api STRIPE_KEY=sk_live_xxx
+.fi
+.PP
+Snapshot an environment before risky work, restore it after:
+.PP
+.nf
+    hadi env pull -s api > api.env
+    hadi env push -s api api.env
+.fi
+.PP
+Roll back to the previous release, or a specific one:
+.PP
+.nf
+    hadi rollback -s api
+    hadi rollback -s api --to 3f2c91a
+.fi
+.PP
+Watch logs across all boxes; check the whole fleet:
+.PP
+.nf
+    hadi logs -s api -f
+    hadi ls --zone example.com
+.fi
+.SH ENVIRONMENT
+.TP
+.B HADI_SSH_KEY
+SSH private key: PEM contents or a path to a key file.
+.TP
+.B HADI_ZONE
+Fallback DNS zone when neither \-\-zone nor a local deploy.json provides one.
+.TP
+.B EDITOR
+Used by
+.BR "env edit" .
+.SH FILES
+.TP
+.B ./deploy.json
+The service's deployment configuration. See the config reference in the
+repository's docs/config.md for every option.
+.TP
+.B /opt/<name>/hadi.json
+On each box: the service's deploy state. The box describes itself.
+.TP
+.B /etc/<name>/env
+On each box: the service's environment. The box is the source of truth;
+edit it through
+.BR "hadi env" .
+.TP
+.B /etc/caddy/hadi/<name>.caddy
+On each box: the service's proxy site. Deploys rewrite its upstream port.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+The operation failed; the service is safe on the previous version.
+.TP
+.B 2
+Configuration or usage error; nothing was touched.
+.SH SEE ALSO
+Full documentation in the repository:
+.B docs/commands.md
+(command reference),
+.B docs/config.md
+(deploy.json options),
+.B docs/ci.md
+(CI setup),
+.B docs/how-it-works.md
+(internals).
