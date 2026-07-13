@@ -61,7 +61,7 @@ hadi is a static binary with no dependencies, so any runner works. Either instal
 
 ```bash
 curl -fsSL -o hadi \
-  https://github.com/mitteai/hadi/releases/download/v0.2.0/hadi-linux-amd64
+  https://github.com/mitteai/hadi/releases/download/v0.3.0/hadi-linux-amd64
 chmod +x hadi
 HADI_SSH_KEY="$SSH_KEY" ./hadi deploy
 ```
