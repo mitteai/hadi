@@ -129,6 +129,24 @@ Every hadi-managed service: box count, live color, sha, health, entry. Resolved 
 | `--zone <zone>` | Zone to list. Falls back to a local `deploy.json`, then `HADI_ZONE`. | `hadi ls --zone example.com` |
 | `--ssh-key <path>` | Key used to read box state. | `hadi ls --zone example.com --ssh-key ./key` |
 
+## boxes
+
+```
+hadi boxes [-s <service>] [--zone <zone>]
+```
+
+Box addresses, script-friendly. Bare in a service repo: that service's boxes, one per line. With `-s`: that service's. With an explicit `--zone`: the whole fleet as `service<TAB>address` lines.
+
+```bash
+hadi ssh $(hadi boxes | head -1)          # shell into the first box
+hadi boxes --zone example.com             # every box of every service
+```
+
+| Flag | What it does | Example |
+|---|---|---|
+| `-s <service>` | One service's boxes, one address per line. | `hadi boxes -s api` |
+| `--zone <zone>` | Explicit zone lists the whole fleet, even from inside a repo. | `hadi boxes --zone example.com` |
+
 ## logs
 
 ```

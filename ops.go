@@ -11,10 +11,53 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mitteai/hadi/internal/config"
 	"github.com/mitteai/hadi/internal/discover"
 	"github.com/mitteai/hadi/internal/sshx"
 	"github.com/mitteai/hadi/internal/ui"
 )
+
+// cmdBoxes lists box addresses: for one service (plain, one per line,
+// script-friendly) or for the whole fleet (service\taddress).
+func cmdBoxes(service, zoneFlag string) {
+	zone := zoneFor(zoneFlag)
+	// Bare `hadi boxes` in a repo means this repo's service. An explicit
+	// --zone means the whole fleet, even from inside a repo.
+	if service == "" && zoneFlag == "" {
+		service = config.PeekName("deploy.json")
+	}
+	if service != "" {
+		var hosts []string
+		if service == config.PeekName("deploy.json") {
+			hosts = config.PeekHosts("deploy.json")
+		}
+		boxes, err := discover.Boxes(service, zone, hosts)
+		if err != nil {
+			ui.Fail("%v", err)
+		}
+		for _, b := range boxes {
+			fmt.Println(b)
+		}
+		return
+	}
+	if zone == "" {
+		ui.Usage("hadi boxes needs a service (-s, or run inside a repo) or a zone for the whole fleet")
+	}
+	names, err := discover.Services(zone)
+	if err != nil {
+		ui.Fail("%v", err)
+	}
+	for _, name := range names {
+		boxes, err := discover.Boxes(name, zone, nil)
+		if err != nil {
+			fmt.Printf("%s\t%v\n", name, err)
+			continue
+		}
+		for _, b := range boxes {
+			fmt.Printf("%s\t%s\n", name, b)
+		}
+	}
+}
 
 func cmdStatus(service, zone, hostFlag, sshKeyFlag string) {
 	ctx, err := resolve(service, zone, hostFlag, sshKeyFlag)

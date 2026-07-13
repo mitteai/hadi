@@ -150,6 +150,36 @@ func PeekZone(path string) string {
 	return partial.Zone
 }
 
+// PeekName reads only the name, leniently (see PeekZone).
+func PeekName(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var partial struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(raw, &partial) != nil {
+		return ""
+	}
+	return partial.Name
+}
+
+// PeekHosts reads only the hosts override, leniently.
+func PeekHosts(path string) []string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var partial struct {
+		Hosts []string `json:"hosts"`
+	}
+	if json.Unmarshal(raw, &partial) != nil {
+		return nil
+	}
+	return partial.Hosts
+}
+
 // BoxesFQDN is the discovery name: <name>.boxes.<zone>.
 func (c *Config) BoxesFQDN() string { return c.Name + ".boxes." + c.Zone }
 

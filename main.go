@@ -29,6 +29,7 @@ The only credential is the SSH key (HADI_SSH_KEY or --ssh-key).
   rollback [--to <sha>]          restore an earlier artifact, verify, flip
   status                         per box: live color, sha, health
   ls       [--zone <zone>]       the fleet at a glance (zone: flag, ./deploy.json, or HADI_ZONE)
+  boxes    [-s <service>]        box addresses, one per line; whole fleet with just a zone
   logs     [-f] [-n N] [--unit]  journalctl for the live color, host-prefixed
   ssh      [box]                 interactive shell
   exec     '<cmd>'               run on every box, output per host
@@ -75,6 +76,8 @@ func main() {
 		cmdStatus(*service, z, *host, *sshKey)
 	case "ls":
 		cmdLs(z, *sshKey)
+	case "boxes":
+		cmdBoxes(*service, *zone)
 	case "logs":
 		cmdLogs(*service, z, *host, *sshKey, *follow, *lines, *unitName)
 	case "ssh":
