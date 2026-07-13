@@ -132,20 +132,25 @@ Every hadi-managed service: box count, live color, sha, health, entry. Resolved 
 ## boxes
 
 ```
-hadi boxes [-s <service>] [--zone <zone>]
+hadi boxes [-s <service>] [--zone <zone>] [-q]
 ```
 
-Box addresses, script-friendly. Bare in a service repo: that service's boxes, one per line. With `-s`: that service's. With an explicit `--zone`: the whole fleet as `service<TAB>address` lines.
+Where a service lives, in the same table style as `hadi ls` but one row per box: service, address, live color, sha, health. Bare in a service repo: that service's boxes. With an explicit `--zone`: the whole fleet, even from inside a repo.
+
+`-q` prints plain addresses, one per line, with no SSH at all: instant, key-free, made for feeding other commands.
 
 ```bash
-hadi ssh $(hadi boxes | head -1)          # shell into the first box
-hadi boxes --zone example.com             # every box of every service
+hadi boxes --zone example.com             # the fleet, one row per box
+hadi ssh $(hadi boxes -q | head -1)       # shell into the first box
+for b in $(hadi boxes -q -s api); do ...  # iterate a service's boxes
 ```
 
 | Flag | What it does | Example |
 |---|---|---|
-| `-s <service>` | One service's boxes, one address per line. | `hadi boxes -s api` |
+| `-q` | Plain addresses only, one per line. No SSH, no key needed. | `hadi boxes -q -s api` |
+| `-s <service>` | One service's boxes. | `hadi boxes -s api` |
 | `--zone <zone>` | Explicit zone lists the whole fleet, even from inside a repo. | `hadi boxes --zone example.com` |
+| `--ssh-key <path>` | Key for the health column (table mode only). | `hadi boxes --ssh-key ./key` |
 
 ## logs
 

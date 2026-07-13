@@ -17,44 +17,78 @@ import (
 	"github.com/mitteai/hadi/internal/ui"
 )
 
-// cmdBoxes lists box addresses: for one service (plain, one per line,
-// script-friendly) or for the whole fleet (service\taddress).
-func cmdBoxes(service, zoneFlag string) {
+// cmdBoxes lists boxes. Default: a table consistent with `hadi ls`, one row
+// per box with live color and health. -q: plain addresses, script-friendly,
+// no SSH at all.
+func cmdBoxes(service, zoneFlag, sshKeyFlag string, quiet bool) {
 	zone := zoneFor(zoneFlag)
 	// Bare `hadi boxes` in a repo means this repo's service. An explicit
 	// --zone means the whole fleet, even from inside a repo.
 	if service == "" && zoneFlag == "" {
 		service = config.PeekName("deploy.json")
 	}
+
+	var services []string
 	if service != "" {
-		var hosts []string
-		if service == config.PeekName("deploy.json") {
-			hosts = config.PeekHosts("deploy.json")
+		services = []string{service}
+	} else {
+		if zone == "" {
+			ui.Usage("hadi boxes needs a service (-s, or run inside a repo) or a zone for the whole fleet")
 		}
-		boxes, err := discover.Boxes(service, zone, hosts)
+		names, err := discover.Services(zone)
 		if err != nil {
 			ui.Fail("%v", err)
 		}
-		for _, b := range boxes {
-			fmt.Println(b)
+		services = names
+	}
+
+	resolve := func(name string) []string {
+		var hosts []string
+		if name == config.PeekName("deploy.json") {
+			hosts = config.PeekHosts("deploy.json")
+		}
+		boxes, err := discover.Boxes(name, zone, hosts)
+		if err != nil {
+			ui.Fail("%v", err)
+		}
+		return boxes
+	}
+
+	if quiet {
+		for _, name := range services {
+			for _, b := range resolve(name) {
+				fmt.Println(b)
+			}
 		}
 		return
 	}
-	if zone == "" {
-		ui.Usage("hadi boxes needs a service (-s, or run inside a repo) or a zone for the whole fleet")
-	}
-	names, err := discover.Services(zone)
+
+	key, err := sshx.LoadKey(sshKeyFlag)
 	if err != nil {
 		ui.Fail("%v", err)
 	}
-	for _, name := range names {
-		boxes, err := discover.Boxes(name, zone, nil)
-		if err != nil {
-			fmt.Printf("%s\t%v\n", name, err)
-			continue
-		}
-		for _, b := range boxes {
-			fmt.Printf("%s\t%s\n", name, b)
+	fmt.Printf("%-15s %-18s %-6s %-9s %s\n", "SERVICE", "BOX", "LIVE", "SHA", "HEALTH")
+	for _, name := range services {
+		for _, b := range resolve(name) {
+			cl, err := sshx.Dial(b, key)
+			if err != nil {
+				fmt.Printf("%-15s %-18s unreachable: %v\n", name, b, err)
+				continue
+			}
+			st, _ := readState(cl, name)
+			if st == nil || st.Config == nil {
+				fmt.Printf("%-15s %-18s not deployed by hadi yet\n", name, b)
+				cl.Close()
+				continue
+			}
+			st.Config.ApplyDefaults()
+			active, _ := activeColor(cl, st.Config)
+			health := "ok"
+			if _, err := cl.Run(healthCmd(st.Config, active)); err != nil {
+				health = "UNHEALTHY"
+			}
+			fmt.Printf("%-15s %-18s %-6d %-9s %s\n", name, b, active, st.SHA, health)
+			cl.Close()
 		}
 	}
 }

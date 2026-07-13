@@ -29,7 +29,7 @@ The only credential is the SSH key (HADI_SSH_KEY or --ssh-key).
   rollback [--to <sha>]          restore an earlier artifact, verify, flip
   status                         per box: live color, sha, health
   ls       [--zone <zone>]       the fleet at a glance (zone: flag, ./deploy.json, or HADI_ZONE)
-  boxes    [-s <service>]        box addresses, one per line; whole fleet with just a zone
+  boxes    [-s <service>] [-q]   boxes with live color + health; -q for plain addresses
   logs     [-f] [-n N] [--unit]  journalctl for the live color, host-prefixed
   ssh      [box]                 interactive shell
   exec     '<cmd>'               run on every box, output per host
@@ -54,6 +54,7 @@ func main() {
 	follow := fs.Bool("f", false, "logs: follow")
 	lines := fs.Int("n", 100, "logs: line count")
 	unitName := fs.String("unit", "", "logs: a specific unit instead of the live color")
+	quiet := fs.Bool("q", false, "boxes: plain addresses only, one per line")
 	toSHA := fs.String("to", "", "rollback: target sha (default: previous)")
 	configPath := fs.String("config", "deploy.json", "ensure: config path")
 	_ = fs.Parse(args)
@@ -77,7 +78,7 @@ func main() {
 	case "ls":
 		cmdLs(z, *sshKey)
 	case "boxes":
-		cmdBoxes(*service, *zone)
+		cmdBoxes(*service, *zone, *sshKey, *quiet)
 	case "logs":
 		cmdLogs(*service, z, *host, *sshKey, *follow, *lines, *unitName)
 	case "ssh":
