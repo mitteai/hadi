@@ -92,8 +92,10 @@ func main() {
 		cmdEnsure(*configPath, *host, *sshKey)
 	case "update":
 		cmdUpdate()
-	case "version":
+	case "version", "--version", "-v":
 		fmt.Println("hadi", version)
+	case "help", "--help", "-h":
+		fmt.Print(usage)
 	default:
 		fmt.Print(usage)
 		os.Exit(2)
