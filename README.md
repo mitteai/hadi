@@ -5,7 +5,7 @@ Zero-downtime deploys for plain Linux services on your own servers. No container
 ## Install
 
 ```bash
-go install github.com/mitteai/hadi@latest
+$ go install github.com/mitteai/hadi@latest
 ```
 
 For CI setup, see [docs/ci.md](docs/ci.md).
@@ -34,40 +34,17 @@ hadi deploy    # build, ship, verify, switch traffic
 
 That's a live HTTPS service. Certificates are issued and renewed automatically. Full walkthrough with a hello-world server: [docs/quick-start.md](docs/quick-start.md).
 
-## Commands
+**Example commands**:
 
-```
-deploy   [--skip-build]         build, ship, verify, switch traffic, drain
-check                           validate deploy.json, print the plan
-env      edit|set|unset|push|pull    edit a service's env remotely; changes apply with zero downtime
-releases                        deploy history: sha, when, who
-rollback [--to <sha>]           restore an earlier release, safely
-status                          what's live, since when, healthy or not
-ls       --zone <zone>          every service at a glance
-logs     [-f] [-n N]            follow the service's logs across boxes
-ssh      [box]                  shell into a box
-exec     '<cmd>'                run a command on every box
-ensure                          prepare a box (idempotent; usable from Packer)
-update                          update hadi itself to the latest release
-```
+* `hadi ls`: list all services. 
+* `hadi boxes`: list all boxes.
+* `hadi logs -f`: watch logs of all services.
+* `hadi env -s myapp MY_ENV_VAR=123`: set environment variable.
+* `hadi rollback`: restore to an earlier release.
+* `hadi ssh -s myapp`: ssh into the box running `myapp` service.
+* `hadi exec -s myapp '<command>'`: run command in remote box(es).
 
-Inside a service repo, commands read `./deploy.json`, including the zone for fleet commands like `ls`. From anywhere else, use `-s <service>` with `--zone <zone>` (or set `HADI_ZONE`).
-
-Examples:
-
-```bash
-hadi deploy                                # from the service repo: build and ship
-hadi deploy --host 10.0.0.5                # one box only
-hadi env set -s api STRIPE_KEY=sk_live_x   # rotate one secret, zero downtime
-hadi env pull -s api > api.env             # snapshot before risky work
-hadi env push -s api api.env               # restore it
-hadi rollback -s api                       # back to the previous release
-hadi rollback -s api --to 3f2c91a          # back to a specific one
-hadi logs -s api -f                        # follow logs across all boxes
-hadi exec -s api 'systemctl status caddy'  # run something everywhere
-hadi ls --zone example.com                 # the whole fleet, one table
-hadi update                                # get the newest hadi
-```
+Read more about Hadi commands: [Commands](docs/commands.md).
 
 ## Docs
 
