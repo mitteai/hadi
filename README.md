@@ -6,6 +6,23 @@ hadi ships your service straight to systemd boxes: the new version starts next t
 
 Each service describes itself in one small `deploy.json`. hadi handles the rest: deploys, rollbacks, config changes, logs, and automatic HTTPS.
 
+## What hadi is, and what it isn't
+
+hadi **is**:
+
+- A deploy tool: one static binary that ships plain Linux services with zero downtime.
+- Health-gated: a new version gets traffic only after proving itself; a failed deploy leaves the old version serving.
+- Agentless: it runs on your machine or in CI and speaks SSH. Your servers run your service, systemd, and Caddy. Nothing else.
+- The owner of the deploy surface: it generates the systemd unit and proxy config from `deploy.json`, so they can't drift from the repo.
+
+hadi is **not**:
+
+- A container platform. No images, no registry, no Docker required (a service may still use containers as sidecars).
+- A provisioner. terraform or your own tooling creates boxes, users, system packages, and DNS. hadi begins where they end.
+- A platform. No daemon, no agent, no web UI, no database. When hadi exits, systemd and Caddy are in charge.
+- An orchestrator. No autoscaling, no canaries, no traffic splitting. Two versions, one live, deploys alternate.
+- A secrets manager. The env lives on your boxes; hadi edits and ships it, and stores nothing anywhere else.
+
 ## Install
 
 ```bash
