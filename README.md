@@ -40,6 +40,7 @@ That's a live HTTPS service. Certificates are issued and renewed automatically. 
 * `hadi boxes`: list all boxes.
 * `hadi top`: live dashboard of services, boxes, vitals and streaming logs.
 * `hadi logs -f`: watch logs of all services.
+* `hadi env edit`: edit env variables.
 * `hadi env -s myapp MY_ENV_VAR=123`: set environment variable.
 * `hadi rollback`: restore to an earlier release.
 * `hadi ssh -s myapp`: ssh into the box running `myapp` service.
