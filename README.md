@@ -53,7 +53,7 @@ That's a live HTTPS service. Certificates are issued and renewed automatically.
 - The service's user created by your provisioning
 - A DNS record per service for discovery: `<name>.boxes.<zone>` pointing at its boxes (or set `"hosts"` in deploy.json)
 
-The only credential hadi uses is an SSH key: `HADI_SSH_KEY` or `--ssh-key`.
+The only credential hadi uses is an SSH key: `HADI_SSH_KEY` or `--ssh-key`. Details and a preflight checklist: [docs/requirements.md](docs/requirements.md).
 
 ## Commands
 
@@ -127,6 +127,7 @@ Hooks must be idempotent: rerunning a failed deploy reruns them.
 
 ## Docs
 
+- [Requirements](docs/requirements.md): what boxes need, with a preflight checklist
 - [Commands](docs/commands.md): every command, its flags, and examples
 - [deploy.json](docs/config.md): every option, with defaults and examples
 - [CI](docs/ci.md): the complete workflow, one secret, version pinning
