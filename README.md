@@ -135,3 +135,4 @@ Hooks must be idempotent: rerunning a failed deploy reruns them.
 - [SSL](docs/ssl.md): automatic HTTPS, how renewal works, what to check
 - [Terraform](docs/terraform.md): the boundary, a complete example, what cloud-init should not do
 - [How it works](docs/how-it-works.md): the lifecycle, colors, discovery, and where truth lives
+- [Troubleshooting](docs/troubleshooting.md): failure scenarios and how to debug them fast
