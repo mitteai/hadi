@@ -58,8 +58,19 @@ func main() {
 	quiet := fs.Bool("q", false, "boxes: plain addresses only, one per line")
 	toSHA := fs.String("to", "", "rollback: target sha (default: previous)")
 	configPath := fs.String("config", "deploy.json", "ensure: config path")
-	_ = fs.Parse(args)
-	rest := fs.Args()
+	// The stdlib flag package stops at the first positional, which would make
+	// `hadi env push -s motion ...` silently drop -s. Interleave: collect
+	// positionals and keep parsing flags around them.
+	var rest []string
+	for {
+		_ = fs.Parse(args)
+		args = fs.Args()
+		if len(args) == 0 {
+			break
+		}
+		rest = append(rest, args[0])
+		args = args[1:]
+	}
 
 	z := zoneFor(*zone)
 
