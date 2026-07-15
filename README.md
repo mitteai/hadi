@@ -1,6 +1,8 @@
 # hadi
 
-Zero-downtime deploys for plain Linux services on your own servers. No containers required — and none forbidden: ship a binary, a release tarball, or a container image, through the same commands. Describe your services in small `deploy.json` files, hadi handles the rest: deploys, rollbacks, config changes, logs, and automatic HTTPS. No registry, no daemon, no agents; the only credential is an SSH key.
+Zero-downtime deploys to your own servers. Ship a binary, a release tarball, or a container image — same commands, same blue-green flip. Describe each service in a small `deploy.json`; hadi handles the rest: deploys, rollbacks, config changes, logs, and automatic HTTPS.
+
+Nothing runs on your boxes but systemd and Caddy — no agents, no daemons, no registry, no platform to operate. The only credential is an SSH key. Why this shape and not Kamal, Dokku, or Kubernetes: [docs/why-hadi.md](docs/why-hadi.md).
 
 ## Install
 
@@ -41,6 +43,8 @@ Got a messy runtime that wants a container (native deps, locales, a pinned OS)? 
 "artifact": "image:forms:release"
 ```
 
+Walkthrough: [docs/docker.md](docs/docker.md).
+
 **Example commands**:
 
 * `hadi ls`: list all services. 
@@ -57,7 +61,9 @@ Read more about Hadi commands: [Commands](docs/commands.md).
 
 ## Docs
 
+- [Why hadi](docs/why-hadi.md): the bets, honestly compared with Kamal, Dokku, and Kubernetes
 - [Quick start](docs/quick-start.md): hello world to production, end to end
+- [Deploying with Docker](docs/docker.md): ship a container image instead of a binary — no registry, no daemon
 - [Requirements](docs/requirements.md): what boxes need, with a preflight checklist
 - [Commands](docs/commands.md): every command, its flags, and examples
 - [deploy.json](docs/config.md): every option, with defaults and examples

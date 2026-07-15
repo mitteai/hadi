@@ -86,7 +86,7 @@ What gets shipped. Three kinds, detected by prefix or extension:
 "artifact": "image:app:release"
 ```
 
-On the box the container runs under the same generated template unit as any service — rootful podman, foreground, journald logs — with privileges dropped inside the container (`--user` as `run.user`, `--cap-drop=all`). `run.exec` must be absent (the image's CMD/ENTRYPOINT is the command); the sandbox knobs map to container equivalents (`read_write_paths` → bind mounts, `ambient_caps` → `--cap-add`, `env_extra` → `--env`). The env file contract tightens: podman reads `/etc/<name>/env` literally, so values must be unquoted (`hadi env` enforces this). `hadi check` prints the exact unit and which engine holds the tag.
+On the box the container runs under the same generated template unit as any service — rootful podman, foreground, journald logs — with privileges dropped inside the container (`--user` as `run.user`, `--cap-drop=all`). `run.exec` must be absent (the image's CMD/ENTRYPOINT is the command); the sandbox knobs map to container equivalents (`read_write_paths` → bind mounts, `ambient_caps` → `--cap-add`, `env_extra` → `--env`). The env file contract tightens: podman reads `/etc/<name>/env` literally, so values must be unquoted (`hadi env` enforces this). `hadi check` prints the exact unit and which engine holds the tag. Full walkthrough: [docker.md](docker.md).
 
 Retention: the last 5 artifacts stay on each box; older ones are pruned on deploy (image prune is ledger-driven, so a rollback target is never evicted). Retention depth equals rollback depth. Rollback refuses to cross an artifact-kind switch — a sha deployed as a tarball can't be restored by an image-era deploy.json; the error tells you to restore that era's config and deploy.
 
