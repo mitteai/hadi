@@ -93,3 +93,67 @@ func TestRenderRelativeExecAnchored(t *testing.T) {
 		t.Error("default absolute exec must pass through unchanged")
 	}
 }
+
+func imageConfig() *config.Config {
+	c := &config.Config{
+		Name:     "mitte",
+		Zone:     "example.com",
+		Artifact: "image:mitte:release",
+		Run:      config.Run{PortEnv: "PORT", StopTimeout: 90},
+		Entry:    config.Entry{Port: 4100},
+	}
+	c.ApplyDefaults()
+	return c
+}
+
+func TestRenderImageUnit(t *testing.T) {
+	u := Render(imageConfig())
+	for _, want := range []string{
+		"Type=notify",
+		"NotifyAccess=all",
+		"--sdnotify=conmon --cgroups=split --pull=never --log-driver=passthrough",
+		"--network host",
+		"--user {{UID}}:{{GID}}",
+		"--cap-drop=all",
+		"--security-opt no-new-privileges",
+		"--env-file /etc/mitte/env",
+		"--env PORT=%i",
+		"--stop-timeout 90",
+		"localhost/mitte:current",
+		"ExecStop=-/usr/bin/podman stop mitte-%i",
+		"TimeoutStopSec=95", // stop_timeout + 5 so podman always finishes first
+		"TimeoutStartSec=30",
+	} {
+		if !strings.Contains(u, want) {
+			t.Errorf("image unit missing %q:\n%s", want, u)
+		}
+	}
+	// The systemd sandboxing block belongs to plain units; containers replace it.
+	for _, reject := range []string{"ProtectSystem", "ProtectHome", "PrivateTmp", "NoNewPrivileges=true", "User=", "EnvironmentFile"} {
+		if strings.Contains(u, reject) {
+			t.Errorf("image unit must not carry %q (container boundary replaces it):\n%s", reject, u)
+		}
+	}
+}
+
+func TestRenderImageKnobMapping(t *testing.T) {
+	c := imageConfig()
+	c.Run.AmbientCaps = []string{"CAP_NET_ADMIN"}
+	c.Run.ReadWritePath = []string{"/var/cache/mitte"}
+	c.Run.Delegate = []string{"cpu", "memory"}
+	c.Run.EnvExtra = map[string]string{"RELEASE_TMP": "/tmp"}
+	u := Render(c)
+	for _, want := range []string{
+		"--cap-add=NET_ADMIN",
+		"-v /var/cache/mitte:/var/cache/mitte",
+		"Delegate=cpu memory",
+		"--env RELEASE_TMP=/tmp",
+	} {
+		if !strings.Contains(u, want) {
+			t.Errorf("knob mapping missing %q:\n%s", want, u)
+		}
+	}
+	if strings.Contains(u, "no-new-privileges") {
+		t.Error("no-new-privileges must be dropped when caps are requested (mirrors the plain branch)")
+	}
+}

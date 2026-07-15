@@ -55,6 +55,11 @@ func cmdEnv(args []string, service, zone, hostFlag, sshKeyFlag string) {
 				ui.Fail("refusing to ship an env that sets %s: the unit injects the per-color port, and an env-file value would override it and break blue-green", c.Run.PortEnv)
 			}
 		}
+		if c.IsImage() {
+			if err := lintImageEnv(content); err != nil {
+				ui.Fail("%v", err)
+			}
+		}
 		err := ctx.eachBox(func(cl *sshx.Client, first bool) error {
 			if err := lock(cl, c.Name); err != nil {
 				return err
@@ -181,6 +186,32 @@ func envSet(content string, pairs []string) string {
 		}
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// lintImageEnv enforces the env contract for image services: literal
+// KEY=VALUE lines, nothing clever. systemd's EnvironmentFile strips quotes
+// and honors backslash continuations; podman's --env-file takes lines
+// literally, so quoting or continuations would silently change values on the
+// kind switch. Unquoted values with spaces are fine — both parsers take
+// everything after the first "=".
+func lintImageEnv(content string) error {
+	for i, line := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		_, val, ok := strings.Cut(line, "=")
+		if !ok {
+			return fmt.Errorf("env line %d is not KEY=VALUE (%q); podman --env-file has no other syntax", i+1, line)
+		}
+		if strings.HasPrefix(val, `"`) || strings.HasPrefix(val, "'") {
+			return fmt.Errorf("env line %d has a quoted value (%q); podman --env-file takes lines literally — the quotes would become part of the value. Unquote it (spaces are fine unquoted)", i+1, line)
+		}
+		if strings.HasSuffix(line, "\\") {
+			return fmt.Errorf("env line %d ends with a continuation backslash (%q); podman --env-file reads it literally", i+1, line)
+		}
+	}
+	return nil
 }
 
 // envUnset removes keys.

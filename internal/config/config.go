@@ -101,6 +101,12 @@ func (c *Config) Validate() error {
 	if len(c.Colors) != 0 && len(c.Colors) != 2 {
 		add("colors", "exactly two internal ports when set; omit for defaults")
 	}
+	if c.IsImage() && c.Run.Exec != "" {
+		add("run.exec", "meaningless for image artifacts: the container runs its own CMD/ENTRYPOINT")
+	}
+	if c.IsImage() && c.ImageRef() == "" {
+		add("artifact", `image artifacts are "image:<local tag>", e.g. "image:mitte:release"`)
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("deploy.json invalid:\n  %s", strings.Join(errs, "\n  "))
 	}
@@ -112,7 +118,7 @@ func (c *Config) ApplyDefaults() {
 	if c.Run.User == "" {
 		c.Run.User = c.Name
 	}
-	if c.Run.Exec == "" {
+	if c.Run.Exec == "" && !c.IsImage() {
 		c.Run.Exec = fmt.Sprintf("/opt/%s/bin/%s", c.Name, c.Name)
 	}
 	if c.Run.StopTimeout == 0 {
@@ -202,3 +208,29 @@ func (c *Config) FrontPort() int { return c.Entry.Port }
 func (c *Config) IsRelease() bool {
 	return strings.HasSuffix(c.Artifact, ".tgz") || strings.HasSuffix(c.Artifact, ".tar.gz")
 }
+
+// IsImage reports whether the artifact is a container image ("image:<tag>"),
+// shipped via save|zstd|load and run under podman.
+func (c *Config) IsImage() bool { return strings.HasPrefix(c.Artifact, "image:") }
+
+// ImageRef is the local tag the build must produce ("image:mitte:release" →
+// "mitte:release"). Box-side tags are always localhost/<name>:<sha>.
+func (c *Config) ImageRef() string { return strings.TrimPrefix(c.Artifact, "image:") }
+
+// Kind names the artifact kind for the release ledger; rollback refuses to
+// cross the image boundary based on it.
+func (c *Config) Kind() string {
+	switch {
+	case c.IsImage():
+		return "image"
+	case c.IsRelease():
+		return "release"
+	default:
+		return "binary"
+	}
+}
+
+// BoxImage is the box-side moving tag — the image analogue of the
+// current-release symlink. localhost/ keeps podman from ever consulting a
+// registry for it.
+func (c *Config) BoxImage() string { return "localhost/" + c.Name }

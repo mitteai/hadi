@@ -45,3 +45,21 @@ func TestEnvUnsetDoesNotPrefixMatch(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestLintImageEnv(t *testing.T) {
+	// The real fleet style: unquoted values, spaces allowed.
+	ok := "PHX_SERVER=true\nFROM_NAME=Azer from Mitte\nDATABASE_URL=ecto://u:p@127.0.0.1/db\n# comment\n\n"
+	if err := lintImageEnv(ok); err != nil {
+		t.Errorf("valid env rejected: %v", err)
+	}
+	for _, bad := range []string{
+		`FOO="a b"` + "\n", // double-quoted: podman keeps the quotes
+		"FOO='a b'\n",      // single-quoted
+		"JUSTAKEY\n",       // not KEY=VALUE
+		"FOO=bar\\\n",      // continuation backslash
+	} {
+		if err := lintImageEnv(bad); err == nil {
+			t.Errorf("lint passed %q; podman --env-file would misread it", bad)
+		}
+	}
+}

@@ -7,6 +7,7 @@ package sshx
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -109,12 +110,19 @@ func (cl *Client) Run(cmd string) (string, error) {
 // Push writes content to a remote path with the given mode, via a cat pipe —
 // no sftp dependency, works everywhere sshd does.
 func (cl *Client) Push(content []byte, path, mode string) error {
+	return cl.PushReader(bytes.NewReader(content), path, mode)
+}
+
+// PushReader streams from r to a remote path — same cat pipe as Push, without
+// holding the payload in memory. Image artifacts (100MB+ zstd tarballs) ship
+// through here.
+func (cl *Client) PushReader(r io.Reader, path, mode string) error {
 	sess, err := cl.c.NewSession()
 	if err != nil {
 		return err
 	}
 	defer sess.Close()
-	sess.Stdin = bytes.NewReader(content)
+	sess.Stdin = r
 	var buf bytes.Buffer
 	sess.Stderr = &buf
 	cmd := fmt.Sprintf("mkdir -p $(dirname %q) && cat > %q && chmod %s %q", path, path, mode, path)

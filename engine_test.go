@@ -6,6 +6,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -43,6 +45,14 @@ func (f *fakeBox) Run(cmd string) (string, error) {
 func (f *fakeBox) Push(content []byte, path, mode string) error {
 	f.pushes[path] = string(content)
 	return nil
+}
+
+func (f *fakeBox) PushReader(r io.Reader, path, mode string) error {
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	return f.Push(raw, path, mode)
 }
 
 func (f *fakeBox) Addr() string { return f.addr }
@@ -226,5 +236,192 @@ func TestEnsurePreservesActiveColorOnMigratedBox(t *testing.T) {
 	site := f.pushes["/etc/caddy/hadi/svc.caddy"]
 	if !strings.Contains(site, "127.0.0.1:4004") {
 		t.Errorf("migration clobbered the live color:\n%s", site)
+	}
+}
+
+func imageCfg() *config.Config {
+	c := &config.Config{
+		Name:     "svc",
+		Zone:     "example.com",
+		Artifact: "image:svc:release",
+		Run:      config.Run{PortEnv: "PORT", ReadyTimeout: 1},
+		Entry:    config.Entry{Port: 4002},
+	}
+	c.ApplyDefaults()
+	c.Run.ReadyTimeout = 1
+	return c
+}
+
+func TestEnsureImageConvergesPodmanSkipsVestigialDirs(t *testing.T) {
+	f := newFakeBox()
+	if err := ensureBox(f, imageCfg()); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if !f.didRun("command -v podman") || !f.didRun("command -v zstd") {
+		t.Error("image ensure must converge podman + zstd")
+	}
+	if f.didRun("/opt/svc/bin") || f.didRun("/opt/svc/releases") || f.didRun("ln -s /opt/svc /opt/svc/current") {
+		t.Error("image ensure must not create binary/release dirs or the current symlink")
+	}
+	// The parts every kind needs stay.
+	if !f.didRun("touch /etc/svc/env") {
+		t.Error("env file convergence missing")
+	}
+}
+
+func TestEnsurePlainKindUntouchedByImageSupport(t *testing.T) {
+	f := newFakeBox()
+	if err := ensureBox(f, testCfg()); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if !f.didRun("mkdir -p /opt/svc/bin /opt/svc/releases") || f.didRun("command -v podman") {
+		t.Error("plain-kind ensure changed behavior")
+	}
+}
+
+func TestInstallUnitsResolvesUIDTokensBoxSide(t *testing.T) {
+	c := imageCfg()
+	f := newFakeBox(
+		rule{match: "id -u svc", out: "999"},
+		rule{match: "id -g svc", out: "988"},
+	)
+	if err := installUnits(f, c, nil); err != nil {
+		t.Fatalf("installUnits: %v", err)
+	}
+	u := f.pushes["/etc/systemd/system/svc@.service"]
+	if !strings.Contains(u, "--user 999:988") {
+		t.Errorf("uid/gid tokens not substituted:\n%s", u)
+	}
+	if strings.Contains(u, "{{UID}}") || strings.Contains(u, "{{GID}}") {
+		t.Error("tokens leaked to the box")
+	}
+}
+
+func TestFlipImageOnceHookRunsInImage(t *testing.T) {
+	c := imageCfg()
+	c.Hooks.OnceBeforeFlip = "bin/migrate"
+	f := newFakeBox(
+		rule{match: "cat /opt/svc/hadi.json", out: stateJSON(4003, "old111")},
+		rule{match: "grep -c '^PORT='", out: "0"},
+	)
+	if err := flip(f, c, "new222", "tester", true); err != nil {
+		t.Fatalf("flip: %v", err)
+	}
+	found := false
+	for _, cmd := range f.ran {
+		if strings.Contains(cmd, "podman run") && strings.Contains(cmd, "localhost/svc:new222") &&
+			strings.Contains(cmd, `--entrypoint /bin/sh`) && strings.Contains(cmd, `"bin/migrate"`) {
+			found = true
+		}
+		if strings.Contains(cmd, "cd /opt/svc/current && sudo") {
+			t.Error("image once-hook ran box-side")
+		}
+	}
+	if !found {
+		t.Errorf("once-hook not run in-image; ran:\n%s", strings.Join(f.ran, "\n"))
+	}
+}
+
+func TestFlipLedgerRecordsKind(t *testing.T) {
+	c := imageCfg()
+	f := newFakeBox(
+		rule{match: "cat /opt/svc/hadi.json", out: stateJSON(4003, "old111")},
+		rule{match: "grep -c '^PORT='", out: "0"},
+	)
+	if err := flip(f, c, "new222", "tester", false); err != nil {
+		t.Fatalf("flip: %v", err)
+	}
+	found := false
+	for _, cmd := range f.ran {
+		if strings.Contains(cmd, "releases.log") && strings.Contains(cmd, "'image'") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("ledger line missing the kind column")
+	}
+}
+
+func TestGuardEnvImageRefusesQuotedValues(t *testing.T) {
+	c := imageCfg()
+	f := newFakeBox(
+		rule{match: "grep -c '^PORT='", out: "0"},
+		rule{match: "grep -nE", out: `3:FOO="a b"`},
+	)
+	err := guardEnv(f, c)
+	if err == nil || !strings.Contains(err.Error(), "quoted") {
+		t.Fatalf("want quoted-value refusal, got %v", err)
+	}
+	// Plain kinds keep systemd's forgiving parsing; no lint.
+	if err := guardEnv(newFakeBox(rule{match: "grep -c '^PORT='", out: "0"}, rule{match: "grep -nE", out: `3:FOO="a b"`}), testCfg()); err != nil {
+		t.Errorf("plain kind must not lint quoting: %v", err)
+	}
+}
+
+func TestPlaceImageLoadsAndTags(t *testing.T) {
+	c := imageCfg()
+	f := newFakeBox()
+	tmp := t.TempDir() + "/img.tzst"
+	if err := os.WriteFile(tmp, []byte("fake-image-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := placeImage(f, c, "abc1234", tmp); err != nil {
+		t.Fatalf("placeImage: %v", err)
+	}
+	if f.pushes["/tmp/svc-abc1234.tzst"] != "fake-image-bytes" {
+		t.Error("image tarball not streamed to the box")
+	}
+	found := false
+	for _, cmd := range f.ran {
+		if strings.Contains(cmd, "podman load") &&
+			strings.Contains(cmd, "podman tag \"$LOADED\" localhost/svc:abc1234") &&
+			strings.Contains(cmd, "podman tag localhost/svc:abc1234 localhost/svc:current") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("load+tag script wrong; ran:\n%s", strings.Join(f.ran, "\n"))
+	}
+}
+
+func TestPruneImageIsLedgerDriven(t *testing.T) {
+	f := newFakeBox()
+	pruneArtifacts(f, imageCfg())
+	found := false
+	for _, cmd := range f.ran {
+		if strings.Contains(cmd, `$5=="image"`) && strings.Contains(cmd, "tail -5") &&
+			strings.Contains(cmd, "podman image prune -f") && strings.Contains(cmd, `[ "$t" = "current" ] && continue`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("image prune must derive keep-set from the ledger and spare :current; ran:\n%s", strings.Join(f.ran, "\n"))
+	}
+}
+
+func TestRestoreCmdKindBoundary(t *testing.T) {
+	// Image config + target recorded as image → retag command.
+	f := newFakeBox(rule{match: "awk -F", out: "image"})
+	cmd, err := restoreCmd(f, imageCfg(), "abc1234")
+	if err != nil || !strings.Contains(cmd, "podman tag localhost/svc:abc1234 localhost/svc:current") {
+		t.Errorf("image restore = %q, %v", cmd, err)
+	}
+	// Image config + tarball-era sha (legacy 4-col line → empty kind) → refuse with instructions.
+	f = newFakeBox(rule{match: "awk -F", out: ""})
+	_, err = restoreCmd(f, imageCfg(), "old1111")
+	if err == nil || !strings.Contains(err.Error(), "deploy.json") {
+		t.Errorf("want cross-kind refusal pointing at deploy.json, got: %v", err)
+	}
+	// Plain config + image-era sha → refuse in the other direction.
+	f = newFakeBox(rule{match: "awk -F", out: "image"})
+	_, err = restoreCmd(f, testCfg(), "img5555")
+	if err == nil || !strings.Contains(err.Error(), "image") {
+		t.Errorf("want reverse cross-kind refusal, got: %v", err)
+	}
+	// Plain config + legacy sha → today's binary restore, untouched.
+	f = newFakeBox(rule{match: "awk -F", out: ""})
+	cmd, err = restoreCmd(f, testCfg(), "bin7777")
+	if err != nil || !strings.Contains(cmd, "install -m 0755") {
+		t.Errorf("legacy restore changed: %q, %v", cmd, err)
 	}
 }

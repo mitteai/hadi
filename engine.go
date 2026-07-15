@@ -7,6 +7,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -16,12 +17,13 @@ import (
 	"github.com/mitteai/hadi/internal/unit"
 )
 
-// box is what the engine needs from a machine: run a command, push a file,
-// say who you are. sshx.Client satisfies it; tests use a fake. The whole
-// lifecycle is testable without a single real box.
+// box is what the engine needs from a machine: run a command, push a file
+// (or stream one), say who you are. sshx.Client satisfies it; tests use a
+// fake. The whole lifecycle is testable without a single real box.
 type box interface {
 	Run(cmd string) (string, error)
 	Push(content []byte, path, mode string) error
+	PushReader(r io.Reader, path, mode string) error
 	Addr() string
 }
 
@@ -102,17 +104,28 @@ func ensureBox(cl box, c *config.Config) error {
 		return err
 	}
 
+	// Image services skip the bin/releases dirs and the current symlink
+	// (vestigial for containers) and converge podman + zstd instead. /opt/<name>
+	// itself stays: hadi.json, the lock, and releases.log live there.
+	dirs := fmt.Sprintf(`mkdir -p /opt/%[1]s/bin /opt/%[1]s/releases /etc/%[1]s /etc/caddy/hadi
+[ -e /opt/%[1]s/current ] || ln -s /opt/%[1]s /opt/%[1]s/current`, c.Name)
+	runtime := ""
+	if c.IsImage() {
+		dirs = fmt.Sprintf("mkdir -p /opt/%[1]s /etc/%[1]s /etc/caddy/hadi", c.Name)
+		runtime = `
+command -v podman >/dev/null || { apt-get update -y >/dev/null 2>&1; apt-get install -y podman >/dev/null 2>&1; }
+command -v zstd >/dev/null || apt-get install -y zstd >/dev/null 2>&1`
+	}
 	script := fmt.Sprintf(`set -e
 id -u %[1]s >/dev/null 2>&1 || { echo "user %[1]s missing: provisioning (terraform) creates users, hadi does not"; exit 1; }
-mkdir -p /opt/%[2]s/bin /opt/%[2]s/releases /etc/%[2]s /etc/caddy/hadi
-[ -e /opt/%[2]s/current ] || ln -s /opt/%[2]s /opt/%[2]s/current
-touch /etc/%[2]s/env && chown %[1]s /etc/%[2]s/env && chmod 0640 /etc/%[2]s/env
+%[3]s
+touch /etc/%[2]s/env && chown %[1]s /etc/%[2]s/env && chmod 0640 /etc/%[2]s/env%[4]s
 if ! command -v caddy >/dev/null; then
   apt-get install -y debian-keyring debian-archive-keyring apt-transport-https >/dev/null 2>&1
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
   apt-get update -y >/dev/null 2>&1 && apt-get install -y caddy >/dev/null 2>&1
-fi`, c.Run.User, c.Name)
+fi`, c.Run.User, c.Name, dirs, runtime)
 	if out, err := cl.Run(script); err != nil {
 		return fmt.Errorf("ensure: %w\n%s", err, out)
 	}
@@ -150,6 +163,21 @@ func installUnits(cl box, c *config.Config, extraUnits map[string][]byte) error 
 	} else {
 		unitText = unit.Render(c)
 	}
+	// Image units carry uid/gid tokens: the render is pure local string
+	// building, and only the box knows what uid run.user maps to (%U in a
+	// system unit is the manager's user — root — never User=).
+	if strings.Contains(unitText, unit.UIDToken) {
+		uid, err := cl.Run("id -u " + c.Run.User)
+		if err != nil {
+			return fmt.Errorf("resolve uid of %s: %w", c.Run.User, err)
+		}
+		gid, err := cl.Run("id -g " + c.Run.User)
+		if err != nil {
+			return fmt.Errorf("resolve gid of %s: %w", c.Run.User, err)
+		}
+		unitText = strings.ReplaceAll(unitText, unit.UIDToken, strings.TrimSpace(uid))
+		unitText = strings.ReplaceAll(unitText, unit.GIDToken, strings.TrimSpace(gid))
+	}
 	if err := cl.Push([]byte(unitText), "/etc/systemd/system/"+c.Name+"@.service", "0644"); err != nil {
 		return err
 	}
@@ -171,12 +199,22 @@ func installUnits(cl box, c *config.Config, extraUnits map[string][]byte) error 
 }
 
 // guardEnv refuses to proceed if the env file pins the port variable, which
-// would silently override the unit's per-color port and break the flip.
+// would silently override the unit's per-color port and break the flip. For
+// image services it additionally refuses quoted values: systemd's
+// EnvironmentFile strips quotes, podman's --env-file takes lines literally —
+// FOO="a b" would silently change value on the kind switch.
 func guardEnv(cl box, c *config.Config) error {
 	out, _ := cl.Run(fmt.Sprintf("grep -c '^%s=' /etc/%s/env 2>/dev/null || true", c.Run.PortEnv, c.Name))
 	if strings.TrimSpace(out) != "0" && strings.TrimSpace(out) != "" {
 		return fmt.Errorf("[%s] /etc/%s/env sets %s, which would override the unit's per-color port and break blue-green. Remove that line (hadi env edit -s %s)",
 			cl.Addr(), c.Name, c.Run.PortEnv, c.Name)
+	}
+	if c.IsImage() {
+		quoted, _ := cl.Run(fmt.Sprintf(`grep -nE "^[A-Za-z_][A-Za-z0-9_]*=[\"']" /etc/%s/env 2>/dev/null || true`, c.Name))
+		if strings.TrimSpace(quoted) != "" {
+			return fmt.Errorf("[%s] /etc/%s/env has quoted values; podman --env-file takes lines literally (the quotes would become part of the value). Unquote them (hadi env edit -s %s):\n%s",
+				cl.Addr(), c.Name, c.Name, quoted)
+		}
 	}
 	return nil
 }
@@ -241,9 +279,18 @@ func flip(cl box, c *config.Config, sha, deployer string, runOnceHook bool) erro
 	ui.Step(cl.Addr(), "verify", fmt.Sprintf("%s on :%d", c.Health, next)+"  ok", time.Since(t), true)
 
 	// Once-per-deploy hook (migrations): after verification, before traffic.
+	// Image kind runs it where the app lives — a one-shot container of the new
+	// sha, through /bin/sh so the hook string keeps shell semantics (&&, $VARS
+	// from the env file). It cannot touch box paths; that is the documented
+	// kind difference. Plain kinds run it box-side as always.
 	if runOnceHook && c.Hooks.OnceBeforeFlip != "" {
 		t = time.Now()
-		if out, err := cl.Run(fmt.Sprintf("cd /opt/%s/current && sudo -u %s %s", c.Name, c.Run.User, c.Hooks.OnceBeforeFlip)); err != nil {
+		hookCmd := fmt.Sprintf("cd /opt/%s/current && sudo -u %s %s", c.Name, c.Run.User, c.Hooks.OnceBeforeFlip)
+		if c.IsImage() {
+			hookCmd = fmt.Sprintf("podman run --rm --pull=never --network host --user $(id -u %[1]s):$(id -g %[1]s) --env-file /etc/%[2]s/env --entrypoint /bin/sh %[3]s:%[4]s -c %[5]q",
+				c.Run.User, c.Name, c.BoxImage(), sha, c.Hooks.OnceBeforeFlip)
+		}
+		if out, err := cl.Run(hookCmd); err != nil {
 			_, _ = cl.Run(fmt.Sprintf("systemctl stop %s@%d", c.Name, next))
 			return fmt.Errorf("once_before_flip failed (old color still serving): %w\n%s", err, out)
 		}
@@ -292,8 +339,11 @@ func flip(cl box, c *config.Config, sha, deployer string, runOnceHook bool) erro
 	if err := writeState(cl, st); err != nil {
 		return err
 	}
-	_, _ = cl.Run(fmt.Sprintf("printf '%%s\\t%%s\\t%%d\\t%%s\\n' '%s' '%s' %d '%s' >> /opt/%s/releases.log",
-		st.DeployedAt, sha, next, deployer, c.Name))
+	// 5th column (artifact kind) landed with image support; readers tolerate
+	// legacy 4-column lines, and rollback uses it to refuse crossing the
+	// image boundary.
+	_, _ = cl.Run(fmt.Sprintf("printf '%%s\\t%%s\\t%%d\\t%%s\\t%%s\\n' '%s' '%s' %d '%s' '%s' >> /opt/%s/releases.log",
+		st.DeployedAt, sha, next, deployer, c.Kind(), c.Name))
 	return nil
 }
 

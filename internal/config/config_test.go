@@ -117,3 +117,70 @@ func TestPeekZone(t *testing.T) {
 		t.Errorf("bad json should peek empty, got %q", z)
 	}
 }
+
+func TestImageDetection(t *testing.T) {
+	c := &Config{Artifact: "image:mitte:release"}
+	if !c.IsImage() || c.IsRelease() {
+		t.Error("image: prefix must detect as image, not release")
+	}
+	if c.ImageRef() != "mitte:release" {
+		t.Errorf("ImageRef = %q", c.ImageRef())
+	}
+	if (&Config{Artifact: "dist/mitte.tgz"}).IsImage() {
+		t.Error("tgz misdetected as image")
+	}
+}
+
+func TestKind(t *testing.T) {
+	for artifact, want := range map[string]string{
+		"image:mitte:release": "image",
+		"dist/mitte.tgz":      "release",
+		"bin/socket-linux":    "binary",
+	} {
+		if got := (&Config{Artifact: artifact}).Kind(); got != want {
+			t.Errorf("Kind(%q) = %q, want %q", artifact, got, want)
+		}
+	}
+}
+
+func TestImageRejectsRunExec(t *testing.T) {
+	// Validate must see run.exec BEFORE ApplyDefaults fills it — Load orders
+	// Validate → ApplyDefaults; this test pins that ordering.
+	_, err := Load(write(t, `{
+		"name": "mitte", "zone": "example.com",
+		"artifact": "image:mitte:release",
+		"run": {"port_env": "PORT", "exec": "bin/server"},
+		"entry": {"port": 4100}
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "run.exec") {
+		t.Errorf("want run.exec rejection for image artifacts, got: %v", err)
+	}
+}
+
+func TestImageSkipsExecDefault(t *testing.T) {
+	c, err := Load(write(t, `{
+		"name": "mitte", "zone": "example.com",
+		"artifact": "image:mitte:release",
+		"run": {"port_env": "PORT"},
+		"entry": {"port": 4100}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Run.Exec != "" {
+		t.Errorf("exec default %q set for image kind; containers run their own CMD", c.Run.Exec)
+	}
+	if c.BoxImage() != "localhost/mitte" {
+		t.Errorf("BoxImage = %q", c.BoxImage())
+	}
+}
+
+func TestImageEmptyRefRejected(t *testing.T) {
+	_, err := Load(write(t, `{
+		"name": "x", "zone": "z", "artifact": "image:",
+		"run": {"port_env": "PORT"}, "entry": {"port": 1}
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "image:<local tag>") {
+		t.Errorf("want empty image ref rejection, got: %v", err)
+	}
+}

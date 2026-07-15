@@ -303,12 +303,15 @@ func cmdReleases(service, zone, hostFlag, sshKeyFlag string) {
 		}
 		out, _ := cl.Run("tail -20 /opt/" + ctx.cfg.Name + "/releases.log 2>/dev/null || echo '(no releases yet)'")
 		ui.Say("%s:", host)
-		fmt.Printf("  %-25s %-10s %-6s %s\n", "WHEN", "SHA", "COLOR", "BY")
+		fmt.Printf("  %-25s %-10s %-6s %-8s %s\n", "WHEN", "SHA", "COLOR", "KIND", "BY")
 		for _, l := range strings.Split(out, "\n") {
 			parts := strings.Split(l, "\t")
-			if len(parts) == 4 {
-				fmt.Printf("  %-25s %-10s %-6s %s\n", parts[0], parts[1], parts[2], parts[3])
-			} else if strings.TrimSpace(l) != "" {
+			switch {
+			case len(parts) == 5: // kind column landed with image support
+				fmt.Printf("  %-25s %-10s %-6s %-8s %s\n", parts[0], parts[1], parts[2], parts[4], parts[3])
+			case len(parts) == 4: // legacy pre-kind lines
+				fmt.Printf("  %-25s %-10s %-6s %-8s %s\n", parts[0], parts[1], parts[2], "-", parts[3])
+			case strings.TrimSpace(l) != "":
 				fmt.Printf("  %s\n", l)
 			}
 		}
@@ -338,11 +341,9 @@ func cmdRollback(service, zone, hostFlag, sshKeyFlag, toSHA string) {
 		defer unlock(cl, c.Name)
 
 		t := time.Now()
-		var restore string
-		if c.IsRelease() {
-			restore = fmt.Sprintf("test -d /opt/%[1]s/releases/%[2]s && ln -sfn /opt/%[1]s/releases/%[2]s /opt/%[1]s/current", c.Name, target)
-		} else {
-			restore = fmt.Sprintf("test -f /opt/%[1]s/bin/%[1]s-%[2]s && install -m 0755 -o %[3]s /opt/%[1]s/bin/%[1]s-%[2]s %[4]s", c.Name, target, c.Run.User, c.Run.Exec)
+		restore, err := restoreCmd(cl, c, target)
+		if err != nil {
+			return err
 		}
 		if out, err := cl.Run(restore); err != nil {
 			return fmt.Errorf("[%s] artifact %s not on box (pruned? see hadi releases): %w\n%s", cl.Addr(), target, err, out)
@@ -354,6 +355,37 @@ func cmdRollback(service, zone, hostFlag, sshKeyFlag, toSHA string) {
 		ui.Fail("\nrollback failed · current version still serving\n%v", err)
 	}
 	ui.Say("\nrolled back (zero downtime)")
+}
+
+// restoreCmd builds the artifact-restore command for a rollback target, and
+// refuses to cross the image boundary: a sha deployed under a different
+// artifact kind can't be restored by this config — the wrong-kind attempt
+// would fail anyway, with a misleading "pruned?" diagnosis at 2am. The kind
+// comes from the ledger's 5th column; legacy 4-column lines read as "".
+func restoreCmd(cl box, c *config.Config, target string) (string, error) {
+	kind, _ := cl.Run(fmt.Sprintf(`awk -F'\t' '$2=="%s" {k=$5} END {print k}' /opt/%s/releases.log 2>/dev/null`, target, c.Name))
+	kind = strings.TrimSpace(kind)
+	if c.IsImage() && kind != "image" {
+		return "", fmt.Errorf("[%s] sha %s was deployed as %q, before the switch to image artifacts — restore that era's deploy.json (git log deploy.json) and run hadi deploy", cl.Addr(), target, orUnknown(kind))
+	}
+	if !c.IsImage() && kind == "image" {
+		return "", fmt.Errorf("[%s] sha %s was deployed as an image, but this deploy.json ships %q — restore the image-era deploy.json and run hadi deploy", cl.Addr(), target, c.Kind())
+	}
+	switch {
+	case c.IsImage():
+		return fmt.Sprintf("podman image exists %[1]s:%[2]s && podman tag %[1]s:%[2]s %[1]s:current", c.BoxImage(), target), nil
+	case c.IsRelease():
+		return fmt.Sprintf("test -d /opt/%[1]s/releases/%[2]s && ln -sfn /opt/%[1]s/releases/%[2]s /opt/%[1]s/current", c.Name, target), nil
+	default:
+		return fmt.Sprintf("test -f /opt/%[1]s/bin/%[1]s-%[2]s && install -m 0755 -o %[3]s /opt/%[1]s/bin/%[1]s-%[2]s %[4]s", c.Name, target, c.Run.User, c.Run.Exec), nil
+	}
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "pre-ledger-kind (binary or release)"
+	}
+	return s
 }
 
 func cmdEnsure(configPath, hostFlag, sshKeyFlag string) {
