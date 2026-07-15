@@ -13,7 +13,9 @@ Everything else on the box (Caddy, directories, the systemd units, the proxy con
 
 Any Linux with systemd works as the process supervisor; **Debian-family** (Debian, Ubuntu) is assumed because `hadi ensure` installs Caddy through apt. On another family, pre-install Caddy yourself and ensure skips that step.
 
-Nothing else is expected: no Docker, no Python, no agents. hadi's remote operations use only tools present on every minimal install (`systemctl`, `curl`, `tar`, `journalctl`).
+Nothing else is expected: no Docker, no Python, no agents. hadi's remote operations use only tools present on every minimal install (`systemctl`, `curl`, `tar`, `journalctl`). The one exception is opt-in: services with an `image:` artifact need podman and zstd on the box, and `hadi ensure` installs both through apt — still no daemon, no registry, no agent.
+
+For image artifacts the *local* side (workstation or CI runner) additionally needs the engine that built the tag (docker or podman) and `zstd`, since the image is saved and compressed where it was built.
 
 ```bash
 ssh root@box 'systemctl --version | head -1 && command -v curl apt-get'

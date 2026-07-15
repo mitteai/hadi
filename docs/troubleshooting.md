@@ -82,6 +82,22 @@ Boxes keep the last 5 releases; older ones are pruned. `hadi releases -s <servic
 git checkout <sha> && hadi deploy && git checkout -
 ```
 
+## rollback: "sha <x> was deployed as ... before the switch to image artifacts"
+
+Working as intended: rollback won't cross an artifact-kind switch, because the current deploy.json can't restore an artifact of a different kind. Do what the message says — restore that era's deploy.json (`git log deploy.json`) and run `hadi deploy`.
+
+## image: "not found in docker or podman" / "exists in BOTH ... with different IDs"
+
+The `image:` artifact must exist as a local tag where hadi runs. Not found: run your `build` (or drop `--skip-build`). Found in both engines with different IDs: you built with one engine and have a stale tag in the other — remove the stale one (`docker rmi <tag>` or `podman rmi <tag>`) so hadi can't ship the wrong build.
+
+## image: env "has a quoted value"
+
+Working as intended for image services: podman reads `/etc/<name>/env` literally, so `FOO="a b"` would put actual quotes in the value (systemd used to strip them). Unquote the value — unquoted spaces are fine in both worlds.
+
+## image: once_before_flip fails with "/bin/sh: not found"
+
+For image artifacts the hook runs inside a one-shot container of the new sha via `/bin/sh -c`, so the image must contain a shell. Distroless images can't use `once_before_flip`; run migrations another way or add a shell to the image.
+
 ## CI: `go install github.com/mitteai/hadi@vX.Y.Z` fails
 
 The tag doesn't exist, or the runner can't reach GitHub. `git ls-remote --tags https://github.com/mitteai/hadi` shows real tags. If the module proxy is lagging a fresh tag, `GOPROXY=direct` in that step.

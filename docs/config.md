@@ -68,9 +68,9 @@ Omit it to always deploy a pre-built artifact.
 
 ### artifact
 
-What gets shipped. Two kinds, detected by extension:
+What gets shipped. Three kinds, detected by prefix or extension:
 
-- A **binary** (anything else): installed to the exec path; each release also kept as a sha-tagged copy for rollback.
+- A **binary** (the default): installed to the exec path; each release also kept as a sha-tagged copy for rollback.
 - A **release tarball** (`.tgz` / `.tar.gz`): unpacked per deploy to `/opt/<name>/releases/<sha>/`, with a `current` symlink repointed before the new version starts. For Elixir releases and anything that's a directory rather than a file:
 
 ```json
@@ -79,7 +79,16 @@ What gets shipped. Two kinds, detected by extension:
 "run": {"exec": "bin/app start", "port_env": "PORT"}
 ```
 
-Retention: the last 5 artifacts stay on each box; older ones are pruned on deploy. Retention depth equals rollback depth.
+- A **container image** (`image:<local tag>`): for runtimes that genuinely want a container — native dependencies, locales, a pinned OS. Your `build` leaves the tag in the local docker or podman; hadi saves it through zstd, streams it over SSH (no registry, ever), loads it on the box, and tags `localhost/<name>:<sha>` plus a moving `:current` tag — the image analogue of the `current` symlink:
+
+```json
+"build": "docker build -t app:release .",
+"artifact": "image:app:release"
+```
+
+On the box the container runs under the same generated template unit as any service — rootful podman, foreground, journald logs — with privileges dropped inside the container (`--user` as `run.user`, `--cap-drop=all`). `run.exec` must be absent (the image's CMD/ENTRYPOINT is the command); the sandbox knobs map to container equivalents (`read_write_paths` → bind mounts, `ambient_caps` → `--cap-add`, `env_extra` → `--env`). The env file contract tightens: podman reads `/etc/<name>/env` literally, so values must be unquoted (`hadi env` enforces this). `hadi check` prints the exact unit and which engine holds the tag.
+
+Retention: the last 5 artifacts stay on each box; older ones are pruned on deploy (image prune is ledger-driven, so a rollback target is never evicted). Retention depth equals rollback depth. Rollback refuses to cross an artifact-kind switch — a sha deployed as a tarball can't be restored by an image-era deploy.json; the error tells you to restore that era's config and deploy.
 
 ### colors
 
@@ -133,7 +142,7 @@ Unix user the service runs as. Default: the service name. Created by your provis
 
 ### run.exec
 
-The command the unit starts. Default `/opt/<name>/bin/<name>`. For release tarballs it's relative to the unpacked release directory.
+The command the unit starts. Default `/opt/<name>/bin/<name>`. For release tarballs it's relative to the unpacked release directory. For image artifacts it must be absent — the container runs its image's CMD/ENTRYPOINT, and `hadi check` rejects the combination.
 
 ### run.after, run.requires
 
@@ -212,6 +221,8 @@ Runs on exactly one box per deploy, after the new version is verified and before
 ```json
 "hooks": {"once_before_flip": "bin/app eval 'App.Release.migrate()'"}
 ```
+
+For **image artifacts** this hook runs where the app lives: inside a one-shot container of the new sha, via `/bin/sh -c` (the image must contain `/bin/sh`; distroless images can't use this hook). Shell semantics (`&&`, `$VARS` from the env file) are preserved; box paths are not reachable — that's the one deliberate difference between kinds.
 
 ### hooks.after_flip
 

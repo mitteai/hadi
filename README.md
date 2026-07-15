@@ -1,6 +1,6 @@
 # hadi
 
-Zero-downtime deploys for plain Linux services on your own servers. No containers required. Describe your services in small `deploy.json` files, hadi handles the rest: deploys, rollbacks, config changes, logs, and automatic HTTPS.
+Zero-downtime deploys for plain Linux services on your own servers. No containers required — and none forbidden: ship a binary, a release tarball, or a container image, through the same commands. Describe your services in small `deploy.json` files, hadi handles the rest: deploys, rollbacks, config changes, logs, and automatic HTTPS. No registry, no daemon, no agents; the only credential is an SSH key.
 
 ## Install
 
@@ -33,6 +33,13 @@ hadi deploy    # build, ship, verify, switch traffic
 ```
 
 That's a live HTTPS service. Certificates are issued and renewed automatically. Full walkthrough with a hello-world server: [docs/quick-start.md](docs/quick-start.md).
+
+Got a messy runtime that wants a container (native deps, locales, a pinned OS)? Point `artifact` at an image instead and nothing else changes — no registry involved, the image travels over SSH like every other artifact:
+
+```json
+"build": "docker build -t forms:release .",
+"artifact": "image:forms:release"
+```
 
 **Example commands**:
 

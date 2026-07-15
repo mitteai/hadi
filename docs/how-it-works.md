@@ -10,11 +10,13 @@ For a service named `api`:
 /opt/api/bin/api              the running binary (or /opt/api/releases/<sha>/ for tarballs)
 /opt/api/bin/api-<sha>        the last 5 releases, kept for rollback
 /opt/api/hadi.json            deploy state: live color, sha, previous sha, who, when
-/opt/api/releases.log         the append-only deploy ledger
+/opt/api/releases.log         the append-only deploy ledger (sha, color, deployer, artifact kind)
 /etc/api/env                  the service's environment (0640, owned by the service user)
 /etc/systemd/system/api@.service    generated template unit; %i is the port
 /etc/caddy/hadi/api.caddy     the proxy site; its upstream port is the live color
 ```
+
+Image-artifact services keep the same layout minus `bin/` and `releases/`: the artifacts live in podman's image storage as `localhost/api:<sha>` tags, with a moving `localhost/api:current` tag playing the `current` symlink's role.
 
 The main `/etc/caddy/Caddyfile` is just `import /etc/caddy/hadi/*.caddy`, so several services share a box without touching each other's config.
 
@@ -48,6 +50,12 @@ Rollback is the same lifecycle with an earlier artifact. Env changes are the sam
 
 hadi renders the service's systemd template from `deploy.json` at deploy time: user, port injection, hardening (`ProtectSystem=strict`, `NoNewPrivileges` unless capabilities are requested), writable paths, capabilities, cgroup delegation, timeouts. The unit file stops being something humans write or review, which kills the class of bugs where the unit in the repo and the unit on the box disagree. `run.unit_file` opts out.
 
+Image artifacts get the same template's container branch: a foreground rootful `podman run` under `Type=notify` (conmon signals readiness) with `--cgroups=split`, so the container's processes live inside the unit's cgroup and stop/drain semantics stay exactly systemd's. Privileges drop inside the container (`--user` resolved to `run.user`'s uid on each box at install time, `--cap-drop=all`); the systemd sandboxing block is replaced by the container boundary itself. Same journald, same `hadi logs`, same everything.
+
+## Image artifacts
+
+The design notes in one breath: no registry (images travel `save | zstd | ssh | load`, so the SSH key stays the only credential), no docker daemon (podman is daemonless; `ensure` converges it), tags are `localhost/`-prefixed and pulled `--pull=never` so a box can never reach for a registry, the moving `:current` tag is resolved when a container *starts* (a running old color keeps its image through a retag, exactly like an inode through a reinstall), rollback is a retag of an image already on disk, and prune derives its keep-set from the deploy ledger rather than image dates (build time is not deploy time). Crossing kinds — tarball era to image era or back — deploys cleanly in one direction (the old color drains through a tolerated ExecStop) and refuses rollbacks across the boundary with instructions instead of a misleading failure.
+
 ## Discovery
 
 DNS is the registry. Your infrastructure tooling publishes:
@@ -59,7 +67,7 @@ hadi's entire discovery code path is one resolver call: no cloud API, no token, 
 
 ## Environment
 
-The box is the source of truth: `/etc/<name>/env`, read by the unit via `EnvironmentFile`. `hadi env` pulls, edits, and pushes it over SSH, and applies every change with the flip lifecycle, so config changes get the same health-gated safety as code. hadi refuses to ship an env containing the port variable, which would override the unit's per-color injection and break blue-green.
+The box is the source of truth: `/etc/<name>/env`, read by the unit via `EnvironmentFile` (plain kinds) or handed to the container via `--env-file` (image kind). `hadi env` pulls, edits, and pushes it over SSH, and applies every change with the flip lifecycle, so config changes get the same health-gated safety as code. hadi refuses to ship an env containing the port variable, which would override the unit's per-color injection and break blue-green. For image services it also refuses quoted values: systemd strips quotes, podman reads lines literally, and a `FOO="a b"` would silently change value on the kind switch. Unquoted values with spaces are fine in both worlds.
 
 ## TLS
 

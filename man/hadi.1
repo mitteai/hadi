@@ -74,12 +74,13 @@ Fetch the box's environment to stdout or a file. Reads every box and warns
 loudly if they differ.
 .TP
 .B releases
-The deploy ledger per box: sha, timestamp, color, deployer. Depth matches
-artifact retention (the last 5 releases stay on each box).
+The deploy ledger per box: sha, timestamp, color, artifact kind, deployer.
+Depth matches artifact retention (the last 5 releases stay on each box).
 .TP
 .B rollback [\-\-to \fIsha\fR]
 Restore an earlier artifact (default: the previous one), verify it, flip.
-Identical safety to a deploy.
+Identical safety to a deploy. Refuses to cross an artifact-kind switch
+(binary/release vs image); the error says how to proceed.
 .TP
 .B status
 Per box: live color, deployed sha, when, by whom, health, and the rollback

@@ -79,7 +79,7 @@ hadi env push -s api api.env                # full replace from a file. Never a 
 hadi releases [-s <service>]
 ```
 
-The deploy ledger per box: timestamp, sha, color, deployer. Each box keeps its last 5 artifacts, so ledger depth equals rollback depth.
+The deploy ledger per box: timestamp, sha, color, artifact kind (binary/release/image), deployer. Each box keeps its last 5 artifacts, so ledger depth equals rollback depth. Lines written before the kind column existed show `-`.
 
 | Flag | What it does | Example |
 |---|---|---|
@@ -93,6 +93,8 @@ hadi rollback [-s <service>] [--to <sha>]
 ```
 
 Restore an earlier artifact, start it on the idle port, verify, flip. Identical safety to a deploy: a rollback that doesn't verify leaves the current version serving.
+
+Rollback won't cross an artifact-kind switch: a sha deployed as a binary or tarball can't be restored by an image-era deploy.json (or vice versa) — the refusal names the target's recorded kind and tells you to restore that era's deploy.json and run `hadi deploy` instead.
 
 ```bash
 hadi rollback -s api                 # previous release
