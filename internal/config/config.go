@@ -7,8 +7,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 )
+
+// nameRe pins the service-name alphabet. The name is interpolated into
+// filesystem paths (/opt/<name>), systemd unit names, caddy site paths, and
+// shell command lines — including `hadi rm`'s `rm -rf /opt/<name>`. Anything
+// outside this alphabet (spaces, slashes, dots, `;`, `..`) turns those
+// interpolations into traversal or injection, so it is rejected at every
+// boundary, not just deploy.json load.
+var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
+// ValidName reports whether s is safe to use as a service name in paths,
+// unit names, and shell commands.
+func ValidName(s string) bool { return nameRe.MatchString(s) }
 
 // Run holds the process knobs the generated systemd unit is rendered from.
 type Run struct {
@@ -85,6 +98,8 @@ func (c *Config) Validate() error {
 
 	if c.Name == "" {
 		add("name", "required: the service name (owns /opt/<name>, /etc/<name>/env, unit names)")
+	} else if !ValidName(c.Name) {
+		add("name", "must match ^[a-z0-9][a-z0-9_-]{0,63}$ — it is interpolated into paths, unit names, and shell commands")
 	}
 	if c.Zone == "" {
 		add("zone", "required: the DNS zone discovery records live under (the one key with no default)")

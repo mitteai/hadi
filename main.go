@@ -27,6 +27,7 @@ The only credential is the SSH key (HADI_SSH_KEY or --ssh-key).
   env      edit|set|unset|push|pull   the box is the source of truth; changes flip
   releases                       the release ledger (sha, when, who)
   rollback [--to <sha>]          restore an earlier artifact, verify, flip
+  rm       -s <name> [--dry-run] [--force]   retire a service: stop colors, remove unit+site+dirs
   status                         per box: live color, sha, health
   ls       [--zone <zone>]       the fleet at a glance (zone: flag, ./deploy.json, or HADI_ZONE)
   boxes    [-s <service>] [-q]   boxes with live color + health; -q for plain addresses
@@ -58,6 +59,8 @@ func main() {
 	quiet := fs.Bool("q", false, "boxes: plain addresses only, one per line")
 	toSHA := fs.String("to", "", "rollback: target sha (default: previous)")
 	configPath := fs.String("config", "deploy.json", "ensure: config path")
+	dryRun := fs.Bool("dry-run", false, "rm: print what would be removed, touch nothing")
+	force := fs.Bool("force", false, "rm: skip the interactive confirmation (CI)")
 	// The stdlib flag package stops at the first positional, which would make
 	// `hadi env push -s motion ...` silently drop -s. Interleave: collect
 	// positionals and keep parsing flags around them.
@@ -85,6 +88,10 @@ func main() {
 		cmdReleases(*service, z, *host, *sshKey)
 	case "rollback":
 		cmdRollback(*service, z, *host, *sshKey, *toSHA)
+	case "rm":
+		// Raw flag, not zoneFor(): rm never consults the local deploy.json —
+		// neither for the service (-s is mandatory) nor for the zone.
+		cmdRm(*service, *zone, *host, *sshKey, *dryRun, *force)
 	case "status":
 		cmdStatus(*service, z, *host, *sshKey)
 	case "ls":

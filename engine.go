@@ -121,6 +121,7 @@ id -u %[1]s >/dev/null 2>&1 || { echo "user %[1]s missing: provisioning (terrafo
 %[3]s
 touch /etc/%[2]s/env && chown %[1]s /etc/%[2]s/env && chmod 0640 /etc/%[2]s/env%[4]s
 if ! command -v caddy >/dev/null; then
+  apt-get update -y >/dev/null 2>&1
   apt-get install -y debian-keyring debian-archive-keyring apt-transport-https >/dev/null 2>&1
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list

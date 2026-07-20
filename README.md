@@ -54,6 +54,7 @@ Walkthrough: [docs/docker.md](docs/docker.md).
 * `hadi env edit`: edit env variables.
 * `hadi env -s myapp MY_ENV_VAR=123`: set environment variable.
 * `hadi rollback`: restore to an earlier release.
+* `hadi rm -s myapp`: retire a service from its boxes (units, site, artifacts, env).
 * `hadi ssh -s myapp`: ssh into the box running `myapp` service.
 * `hadi exec -s myapp '<command>'`: run command in remote box(es).
 
