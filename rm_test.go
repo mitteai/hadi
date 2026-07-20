@@ -94,6 +94,41 @@ func TestRemoveServiceStopFailureAborts(t *testing.T) {
 	}
 }
 
+// The name-integrity guards: the service name feeds `rm -rf /opt/<name>`,
+// so an empty, traversal, or metacharacter name must refuse before ANY
+// command reaches the box. These names arrive via corrupt or hand-edited
+// hadi.json state, not just deploy.json (which Validate rejects at load).
+func TestRemoveServiceRefusesUnsafeNames(t *testing.T) {
+	for _, name := range []string{
+		"",                // rm -rf /opt/ /etc/ — would destroy the box
+		"x; rm -rf /",     // shell injection
+		"../../home/user", // path traversal
+		"a b",             // word-splits into extra rm arguments
+		"UPPER",           // outside the pinned alphabet
+		"-leading-dash",   // could be parsed as a flag
+	} {
+		c := testCfg()
+		c.Name = name
+		f := newFakeBox()
+		if err := removeService(f, c); err == nil {
+			t.Errorf("name %q: removal must refuse", name)
+		}
+		if len(f.ran) != 0 {
+			t.Errorf("name %q: no command may reach the box, ran: %v", name, f.ran)
+		}
+	}
+}
+
+func TestRemoveServiceAcceptsRealisticNames(t *testing.T) {
+	for _, name := range []string{"mitte", "mitte-pr-245", "socket_svc", "a"} {
+		c := testCfg()
+		c.Name = name
+		if err := removeService(newFakeBox(), c); err != nil {
+			t.Errorf("name %q: should be removable: %v", name, err)
+		}
+	}
+}
+
 // errBoom is a shared sentinel for scripted failures.
 var errBoom = errStr("boom")
 

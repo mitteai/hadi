@@ -30,6 +30,11 @@ func cmdRm(service, zone, hostFlag, sshKeyFlag string, dryRun, force bool) {
 	if service == "" {
 		ui.Usage("hadi rm requires an explicit -s <service> (it never infers one from ./deploy.json)")
 	}
+	// The argument becomes a path (/opt/<service>/hadi.json) before any config
+	// is loaded — reject traversal/injection shapes at the door.
+	if !config.ValidName(service) {
+		ui.Usage("invalid service name %q (must match ^[a-z0-9][a-z0-9_-]{0,63}$)", service)
+	}
 
 	key, err := sshx.LoadKey(sshKeyFlag)
 	if err != nil {
@@ -69,6 +74,15 @@ func cmdRm(service, zone, hostFlag, sshKeyFlag string, dryRun, force bool) {
 			service, boxes[0], service, service, service)
 	}
 	c := st.Config
+	// The box's self-description decides what gets removed, so it must agree
+	// with what the operator asked for: a corrupt or hand-edited hadi.json
+	// naming a DIFFERENT service (or an empty name) must never redirect the
+	// removal — /opt/pr-123/hadi.json claiming "mitte" would otherwise make
+	// `hadi rm -s pr-123` delete mitte.
+	if c.Name != service {
+		ui.Fail("refusing: %s/hadi.json on %s names %q, not %q — the state is corrupt or hand-edited; inspect it before removing anything",
+			"/opt/"+service, boxes[0], c.Name, service)
+	}
 	c.ApplyDefaults()
 
 	ui.Say("removing %s from %d box(es): %s", c.Name, len(boxes), strings.Join(boxes, ", "))
@@ -115,6 +129,13 @@ func imageNote(c *config.Config) string {
 // (a half-deployed or half-removed box converges to gone), and the deploy
 // lock is taken first so rm can't race an in-flight deploy.
 func removeService(cl box, c *config.Config) error {
+	// Last-line guard, independent of every caller: the name feeds
+	// `rm -rf /opt/<name>` — an empty or metacharacter name would turn that
+	// into `rm -rf /opt/` or shell injection. cmdRm validates earlier;
+	// this holds for any future caller too.
+	if !config.ValidName(c.Name) {
+		return fmt.Errorf("refusing to remove service with unsafe name %q", c.Name)
+	}
 	if err := lock(cl, c.Name); err != nil {
 		return err
 	}
