@@ -107,6 +107,30 @@ hadi rollback -s api --to 3f2c91a    # a specific one (see hadi releases)
 | `-s <service>` | Which service. | `hadi rollback -s api` |
 | `--host <addr>` | Roll back one box only. | `hadi rollback -s api --host 10.0.0.5` |
 
+## rm
+
+```
+hadi rm -s <service> [--host <addr>] [--dry-run] [--force]
+```
+
+Retire a service from its boxes — the inverse of `ensure` + `deploy`. Stops and disables both colors, removes the unit template (with a daemon-reload), the Caddy site (with a reload), `/opt/<service>` and `/etc/<service>`; image services also lose their `localhost/<service>` podman images. The removal is permanent: artifacts, release ledger, and env file all go.
+
+`-s` is required — `rm` never infers a target from the repo you're standing in. Interactive runs confirm by typing the service name; non-interactive runs (CI, scripts) must pass `--force`. `rm` takes the deploy lock first, so it can't race an in-flight deploy.
+
+What stays: the `run.user` (provisioning creates users, hadi doesn't touch them) and any `extra_units` files (their names aren't tracked on the box; they're inert without the service).
+
+```bash
+hadi rm -s pr-412 --host 10.0.0.9 --force   # CI teardown of a preview environment
+hadi rm -s old-api --dry-run                # see what would go, touch nothing
+```
+
+| Flag | What it does | Example |
+|---|---|---|
+| `-s <service>` | Which service. Required. | `hadi rm -s old-api` |
+| `--host <addr>` | One box, bypassing discovery (needed for services deployed via `hosts`). | `hadi rm -s pr-412 --host 10.0.0.9` |
+| `--dry-run` | Print the removal plan, touch nothing. | `hadi rm -s old-api --dry-run` |
+| `--force` | Skip the typed confirmation (CI). | `hadi rm -s pr-412 --force` |
+
 ## status
 
 ```
