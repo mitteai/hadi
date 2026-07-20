@@ -48,8 +48,14 @@ func cmdRm(service, zone, hostFlag, sshKeyFlag string, dryRun, force bool) {
 	if hostFlag != "" {
 		boxes = []string{hostFlag}
 	} else {
+		// Explicit sources only: the flag, then HADI_ZONE — never the local
+		// deploy.json (a destructive command must not resolve discovery from
+		// whatever repo the terminal happens to be in).
 		if zone == "" {
-			ui.Usage("hadi rm needs --host <addr>, or a zone (--zone / HADI_ZONE) for discovery")
+			zone = os.Getenv("HADI_ZONE")
+		}
+		if zone == "" {
+			ui.Usage("hadi rm needs --host <addr>, or an explicit zone (--zone / HADI_ZONE) for discovery")
 		}
 		if boxes, err = discover.Boxes(service, zone, nil); err != nil {
 			ui.Fail("%v", err)
@@ -70,8 +76,8 @@ func cmdRm(service, zone, hostFlag, sshKeyFlag string, dryRun, force bool) {
 		ui.Fail("%v", err)
 	}
 	if st == nil || st.Config == nil {
-		ui.Fail("%s has no hadi.json on %s — nothing hadi-deployed to remove.\n(Half-provisioned leftovers: rm -rf /opt/%s /etc/%s /etc/caddy/hadi/%s.caddy by hand.)",
-			service, boxes[0], service, service, service)
+		ui.Fail("%s has no hadi.json on %s — nothing hadi-deployed to remove.\n(Half-provisioned leftovers, by hand: rm -rf /opt/%s /etc/%s /etc/caddy/hadi/%s.caddy /etc/systemd/system/%s@.service && systemctl daemon-reload && systemctl reload caddy)",
+			service, boxes[0], service, service, service, service)
 	}
 	c := st.Config
 	// The box's self-description decides what gets removed, so it must agree
@@ -144,8 +150,12 @@ func removeService(cl box, c *config.Config) error {
 	// crashed deploy.
 
 	t := time.Now()
+	// Absence is tolerated per command (|| true), but a color still ACTIVE
+	// after the stop attempt hard-fails: a broken systemd/dbus must not let
+	// the dirs be removed under a running process (deleted-inode limbo, bound
+	// ports, a ghost service).
 	stop := fmt.Sprintf(
-		"systemctl stop %[1]s@%[2]d %[1]s@%[3]d 2>/dev/null; systemctl disable %[1]s@%[2]d %[1]s@%[3]d 2>/dev/null; systemctl reset-failed '%[1]s@%[2]d' '%[1]s@%[3]d' 2>/dev/null; true",
+		"systemctl stop %[1]s@%[2]d %[1]s@%[3]d 2>/dev/null || true; systemctl disable %[1]s@%[2]d %[1]s@%[3]d 2>/dev/null || true; systemctl reset-failed '%[1]s@%[2]d' '%[1]s@%[3]d' 2>/dev/null || true; if systemctl is-active --quiet '%[1]s@%[2]d' 2>/dev/null || systemctl is-active --quiet '%[1]s@%[3]d' 2>/dev/null; then echo 'a color is still active after stop'; exit 1; fi",
 		c.Name, c.Colors[0], c.Colors[1])
 	if out, err := cl.Run(stop); err != nil {
 		return fmt.Errorf("[%s] stop colors: %w\n%s", cl.Addr(), err, out)

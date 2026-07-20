@@ -89,7 +89,9 @@ func main() {
 	case "rollback":
 		cmdRollback(*service, z, *host, *sshKey, *toSHA)
 	case "rm":
-		cmdRm(*service, z, *host, *sshKey, *dryRun, *force)
+		// Raw flag, not zoneFor(): rm never consults the local deploy.json —
+		// neither for the service (-s is mandatory) nor for the zone.
+		cmdRm(*service, *zone, *host, *sshKey, *dryRun, *force)
 	case "status":
 		cmdStatus(*service, z, *host, *sshKey)
 	case "ls":

@@ -17,6 +17,7 @@ func TestRemoveServiceHappyPath(t *testing.T) {
 	for _, want := range []string{
 		"systemctl stop svc@4003 svc@4004",
 		"systemctl disable svc@4003 svc@4004",
+		"is-active", // the still-running guard must ride the stop command
 		"rm -f /etc/systemd/system/svc@.service",
 		"systemctl daemon-reload",
 		"rm -f /etc/caddy/hadi/svc.caddy",
@@ -82,9 +83,12 @@ func TestRemoveServiceImageKindClearsImages(t *testing.T) {
 }
 
 func TestRemoveServiceStopFailureAborts(t *testing.T) {
+	// Covers both real stop failures and the still-active guard: either way
+	// the compound stop command errors, and nothing may be removed after —
+	// deleting /opt under a live process leaves deleted-inode limbo.
 	c := testCfg()
 	f := newFakeBox(
-		rule{match: "systemctl stop", out: "boom", err: errBoom},
+		rule{match: "systemctl stop", out: "a color is still active after stop", err: errBoom},
 	)
 	if err := removeService(f, c); err == nil {
 		t.Fatal("a failing stop must abort the removal")
