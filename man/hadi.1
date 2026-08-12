@@ -17,6 +17,13 @@ Each service is described by a
 .B deploy.json
 in its repository. hadi runs on your machine or in CI and talks to boxes over
 SSH; nothing is installed on the servers except the service itself.
+.PP
+A repository with a
+.B Dockerfile
+deploys as a container image by default: when deploy.json names no build or
+artifact, hadi builds the Dockerfile locally and streams the image over SSH
+(no registry). Stating build/artifact explicitly ships a binary or release
+tarball instead.
 .SH GLOBAL OPTIONS
 These apply to every command that touches a service.
 .TP
