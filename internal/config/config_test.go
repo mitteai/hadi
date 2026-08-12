@@ -16,6 +16,30 @@ func write(t *testing.T, content string) string {
 	return p
 }
 
+// writeWithDockerfile puts a Dockerfile next to deploy.json — the trigger for
+// the docker-by-default inference — and a fake docker on PATH, so inference
+// tests pass on machines with any combination of engines installed.
+func writeWithDockerfile(t *testing.T, content string) string {
+	t.Helper()
+	fakeEngine(t, "docker")
+	p := write(t, content)
+	df := filepath.Join(filepath.Dir(p), "Dockerfile")
+	if err := os.WriteFile(df, []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// fakeEngine makes PATH hold exactly one executable with the given name.
+func fakeEngine(t *testing.T, name string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
 func TestMinimalConfigDefaults(t *testing.T) {
 	c, err := Load(write(t, `{
 		"name": "pdf-service",
@@ -46,7 +70,7 @@ func TestMinimalConfigDefaults(t *testing.T) {
 }
 
 func TestDomainEntryColorDefaults(t *testing.T) {
-	c, err := Load(write(t, `{
+	c, err := Load(writeWithDockerfile(t, `{
 		"name": "socket", "zone": "example.com",
 		"run": {"port_env": "PORT"},
 		"entry": {"domain": "socket.example.com"}
@@ -60,9 +84,125 @@ func TestDomainEntryColorDefaults(t *testing.T) {
 }
 
 func TestValidationNamesTheField(t *testing.T) {
-	_, err := Load(write(t, `{"name": "x", "zone": "z", "entry": {"port": 1}}`))
-	if err == nil || !strings.Contains(err.Error(), "run.port_env") {
-		t.Errorf("want run.port_env named in error, got: %v", err)
+	_, err := Load(write(t, `{"name": "x", "zone": "z", "run": {"port_env": "PORT"}, "artifact": "bin/x"}`))
+	if err == nil || !strings.Contains(err.Error(), "entry") {
+		t.Errorf("want entry named in error, got: %v", err)
+	}
+}
+
+func TestDockerfileInference(t *testing.T) {
+	c, err := Load(writeWithDockerfile(t, `{
+		"name": "forms", "zone": "example.com",
+		"entry": {"domain": "forms.example.com"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Inferred {
+		t.Error("Inferred not set")
+	}
+	if !c.IsImage() || c.ImageRef() != "forms:hadi" {
+		t.Errorf("artifact = %q, want image:forms:hadi", c.Artifact)
+	}
+	if c.Build != "docker build --platform linux/amd64 -t forms:hadi ." {
+		t.Errorf("build = %q", c.Build)
+	}
+}
+
+func TestInferenceFallsBackToPodman(t *testing.T) {
+	fakeEngine(t, "podman") // and no docker on PATH
+	p := write(t, `{
+		"name": "forms", "zone": "example.com",
+		"entry": {"domain": "forms.example.com"}
+	}`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(p), "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Build != "podman build --platform linux/amd64 -t forms:hadi ." {
+		t.Errorf("build = %q, want podman fallback", c.Build)
+	}
+}
+
+func TestNoLocalEngineNamesTheRealProblem(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // neither docker nor podman findable
+	p := write(t, `{
+		"name": "forms", "zone": "example.com",
+		"entry": {"domain": "forms.example.com"}
+	}`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(p), "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(p)
+	if err == nil || !strings.Contains(err.Error(), "neither docker nor podman") {
+		t.Errorf(`want the engine error, not "nothing to ship", got: %v`, err)
+	}
+}
+
+func TestPortEnvDefault(t *testing.T) {
+	c, err := Load(writeWithDockerfile(t, `{
+		"name": "forms", "zone": "example.com",
+		"entry": {"domain": "forms.example.com"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Run.PortEnv != "PORT" {
+		t.Errorf("port_env default = %q, want PORT", c.Run.PortEnv)
+	}
+}
+
+func TestExplicitArtifactWinsOverDockerfile(t *testing.T) {
+	c, err := Load(writeWithDockerfile(t, `{
+		"name": "forms", "zone": "example.com",
+		"build": "make build-linux", "artifact": "bin/forms-linux",
+		"entry": {"domain": "forms.example.com"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Inferred || c.IsImage() || c.Artifact != "bin/forms-linux" {
+		t.Errorf("explicit artifact must win: inferred=%v artifact=%q", c.Inferred, c.Artifact)
+	}
+	if c.Build != "make build-linux" {
+		t.Errorf("explicit build must win, got %q", c.Build)
+	}
+}
+
+func TestExplicitBuildAloneDisablesInference(t *testing.T) {
+	// A lone build line means the user is mid-edit toward an explicit config;
+	// guessing an artifact for their command would be wrong. Fail loudly.
+	_, err := Load(writeWithDockerfile(t, `{
+		"name": "forms", "zone": "example.com",
+		"build": "make build-linux",
+		"entry": {"domain": "forms.example.com"}
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "artifact") {
+		t.Errorf("want artifact error, got: %v", err)
+	}
+}
+
+func TestNothingToShipError(t *testing.T) {
+	_, err := Load(write(t, `{
+		"name": "forms", "zone": "example.com",
+		"entry": {"domain": "forms.example.com"}
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "Dockerfile") {
+		t.Errorf("want the error to teach both roads, got: %v", err)
+	}
+}
+
+func TestInferredImageRejectsRunExec(t *testing.T) {
+	_, err := Load(writeWithDockerfile(t, `{
+		"name": "forms", "zone": "example.com",
+		"run": {"exec": "bin/forms"},
+		"entry": {"domain": "forms.example.com"}
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "inferred from the Dockerfile") {
+		t.Errorf("want run.exec rejection naming the inference, got: %v", err)
 	}
 }
 

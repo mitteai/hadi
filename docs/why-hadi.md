@@ -4,7 +4,7 @@ Every tool in this space answers the same question — how do I ship code to ser
 
 That one bet drives everything else:
 
-- **The artifact is whatever your runtime actually needs.** A static binary ships as a binary. An Elixir release ships as a tarball. A runtime with native deps and a pinned OS ships as a container image. Same commands, same flip, no tool switch when a service's needs change.
+- **The artifact is whatever your runtime actually needs.** A repo with a Dockerfile ships as a container image — the default, inferred from the Dockerfile's presence. A static binary ships as a binary; an Elixir release ships as a tarball. Same commands, same flip, no tool switch when a service's needs change.
 - **The only credential is an SSH key.** No registry auth, no cluster kubeconfig, no platform API token. Whoever holds the key can deploy; nobody else can. CI is one secret.
 - **Nothing to operate between deploys.** hadi is a client. It leaves systemd supervising, Caddy proxying, and journald logging — software your distro already ships and you already trust. There is no agent to upgrade, no daemon to secure, no control plane to page you.
 - **Boxes stay legible.** Your process is in `ps`. Its logs are in `journalctl`. Its config is one file in `/etc`. When something breaks at 2am, the debugging surface is a Linux box, not a platform on top of one.
@@ -21,7 +21,7 @@ The image-only bet has an operational tail:
 - **Docker on every host.** A root daemon to install, upgrade, and monitor, plus image storage to garbage-collect. hadi's boxes run systemd and Caddy; image-artifact services add daemonless podman, converged automatically.
 - **Indirection in the ops path.** Containers under a daemon mean `docker exec` instead of `ps`, log drivers instead of journald, and kamal-proxy as one more moving part. hadi services — containerized or not — are children of systemd units: native logs, native cgroups, native everything.
 
-When Kamal is the right call: your whole workflow is image-shaped end to end — you want the exact production blob running locally and in CI, image scanning in the pipeline, and accessories (Postgres, Redis) managed by the same tool. If you're all-in on the container ecosystem, Kamal embraces it; hadi deliberately keeps it optional.
+When Kamal is the right call: your whole workflow is image-shaped end to end — you want the exact production blob running locally and in CI, image scanning in the pipeline, and accessories (Postgres, Redis) managed by the same tool. Both tools now treat the Dockerfile as the default front door; the difference is what comes with it. Kamal embraces the whole container ecosystem; hadi takes the Dockerfile and deliberately keeps the rest — registry, daemon, image-only lock-in — optional.
 
 ## hadi vs Dokku
 
@@ -53,7 +53,7 @@ When Kubernetes is the right call: dozens-plus of services with spiky loads wort
 | | hadi | Kamal | Dokku | k8s / k3s |
 |---|---|---|---|---|
 | Unit of deployment | binary / tarball / image | container image | git push / buildpack | container image |
-| On your servers | systemd + Caddy (+ podman opt-in) | Docker + kamal-proxy | the Dokku platform | the cluster |
+| On your servers | systemd + Caddy (+ podman for image services) | Docker + kamal-proxy | the Dokku platform | the cluster |
 | Registry required | never | yes | no (builds on box) | yes |
 | Credentials | SSH key | SSH key + registry | SSH key | kubeconfig (+ registry) |
 | Multi-box | native (DNS discovery) | native | bolt-on | native |

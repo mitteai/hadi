@@ -1,6 +1,6 @@
 # hadi
 
-Zero-downtime deploys to your own servers. Ship a binary, a release tarball, or a container image — same commands, same blue-green flip. Describe each service in a small `deploy.json`; hadi handles the rest: deploys, rollbacks, config changes, logs, and automatic HTTPS.
+Zero-downtime deploys to your own servers. Ship your Docker image — or a binary, or a release tarball — same commands, same blue-green flip. Describe each service in a small `deploy.json`; hadi handles the rest: deploys, rollbacks, config changes, logs, and automatic HTTPS.
 
 Nothing runs on your boxes but systemd and Caddy — no agents, no daemons, no registry, no platform to operate. The only credential is an SSH key. Why this shape and not Kamal, Dokku, or Kubernetes: [docs/why-hadi.md](docs/why-hadi.md).
 
@@ -14,15 +14,12 @@ For CI setup, see [docs/ci.md](docs/ci.md).
 
 ## Quick start
 
-Add a `deploy.json` to your service repo:
+Your repo has a Dockerfile. Add a `deploy.json` next to it:
 
 ```json
 {
   "name": "forms",
   "zone": "example.com",
-  "build": "make build-linux",
-  "artifact": "bin/forms-linux",
-  "run": {"port_env": "PORT"},
   "entry": {"domain": "forms.example.com"}
 }
 ```
@@ -31,19 +28,19 @@ Then:
 
 ```bash
 hadi check     # validate the config, print the plan
-hadi deploy    # build, ship, verify, switch traffic
+hadi deploy    # build the Dockerfile, ship, verify, switch traffic
 ```
 
-That's a live HTTPS service. Certificates are issued and renewed automatically. Full walkthrough with a hello-world server: [docs/quick-start.md](docs/quick-start.md).
+That's a live HTTPS service. Certificates are issued and renewed automatically. The Dockerfile is the build declaration — hadi builds it locally and streams the image over SSH; no registry involved, ever, and no Docker daemon on your boxes (containers run under daemonless podman, supervised by systemd). Full walkthrough: [docs/quick-start.md](docs/quick-start.md).
 
-Got a messy runtime that wants a container (native deps, locales, a pinned OS)? Point `artifact` at an image instead and nothing else changes — no registry involved, the image travels over SSH like every other artifact:
+No Dockerfile? Ship a binary or a release tarball instead — same commands, same flip. State how to build it and what to ship, and nothing else changes:
 
 ```json
-"build": "docker build -t forms:release .",
-"artifact": "image:forms:release"
+"build": "make build-linux",
+"artifact": "bin/forms-linux"
 ```
 
-Walkthrough: [docs/docker.md](docs/docker.md).
+Walkthrough: [docs/no-docker.md](docs/no-docker.md).
 
 **Example commands**:
 
@@ -63,8 +60,9 @@ Read more about Hadi commands: [Commands](docs/commands.md).
 ## Docs
 
 - [Why hadi](docs/why-hadi.md): the bets, honestly compared with Kamal, Dokku, and Kubernetes
-- [Quick start](docs/quick-start.md): hello world to production, end to end
-- [Deploying with Docker](docs/docker.md): ship a container image instead of a binary — no registry, no daemon
+- [Quick start](docs/quick-start.md): Dockerfile to production, end to end
+- [Image deploys, in depth](docs/docker.md): what runs on the box — no registry, no daemon
+- [Deploying without Docker](docs/no-docker.md): ship a plain binary or release tarball — same commands
 - [Requirements](docs/requirements.md): what boxes need, with a preflight checklist
 - [Commands](docs/commands.md): every command, its flags, and examples
 - [deploy.json](docs/config.md): every option, with defaults and examples

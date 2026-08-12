@@ -1,8 +1,18 @@
 # deploy.json
 
-One file per service repo, at the root. Only `name`, `zone`, `entry`, and `run.port_env` are required; everything else has a default, so a config states only what deviates.
+One file per service repo, at the root. Only `name`, `zone`, and `entry` are required; everything else has a default, so a config states only what deviates.
 
-The smallest real config:
+The smallest real config — for a repo with a Dockerfile, which is its own build declaration:
+
+```json
+{
+  "name": "forms",
+  "zone": "example.com",
+  "entry": {"domain": "forms.example.com"}
+}
+```
+
+The same service as a plain binary states how to build and what to ship:
 
 ```json
 {
@@ -10,7 +20,6 @@ The smallest real config:
   "zone": "example.com",
   "build": "make build-linux",
   "artifact": "bin/forms-linux",
-  "run": {"port_env": "PORT"},
   "entry": {"domain": "forms.example.com"}
 }
 ```
@@ -64,29 +73,31 @@ Shell command that produces the artifact, run locally (or on the CI runner) befo
 "build": "go build -ldflags \"-X main.version=$(git rev-parse --short HEAD)\" -o bin/api ."
 ```
 
-Omit it to always deploy a pre-built artifact.
+With `artifact` set, omit `build` to always deploy a pre-built artifact.
+
+**The Docker default:** when `build` and `artifact` are *both* absent and a `Dockerfile` sits next to deploy.json, hadi fills them in — `build` as `docker build --platform linux/amd64 -t <name>:hadi .` (podman if docker isn't installed locally) and `artifact` as `image:<name>:hadi`. `hadi check` prints both with a `(default: Dockerfile found)` label. Stating either key disables the inference entirely (check notes the unused Dockerfile), and hadi never reads the Dockerfile's contents. Both keys absent with no Dockerfile is a config error that names both roads.
 
 ### artifact
 
 What gets shipped. Three kinds, detected by prefix or extension:
 
-- A **binary** (the default): installed to the exec path; each release also kept as a sha-tagged copy for rollback.
+- A **container image** (`image:<local tag>`, the default via the Dockerfile inference above): your `build` leaves the tag in the local docker or podman; hadi saves it through zstd, streams it over SSH (no registry, ever), loads it on the box, and tags `localhost/<name>:<sha>` plus a moving `:current` tag — the image analogue of the `current` symlink. Write it explicitly only to deviate from the inferred tag:
+
+```json
+"build": "docker build --platform linux/amd64 -t app:release .",
+"artifact": "image:app:release"
+```
+
+On the box the container runs under the same generated template unit as any service — rootful podman, foreground, journald logs — with privileges dropped inside the container (`--user` as `run.user`, `--cap-drop=all`). `run.exec` must be absent (the image's CMD/ENTRYPOINT is the command); the sandbox knobs map to container equivalents (`read_write_paths` → bind mounts, `ambient_caps` → `--cap-add`, `env_extra` → `--env`). The env file contract tightens: podman reads `/etc/<name>/env` literally, so values must be unquoted (`hadi env` enforces this). `hadi check` prints the exact unit and which engine holds the tag. Mechanics: [docker.md](docker.md).
+
+- A **binary**: installed to the exec path; each release also kept as a sha-tagged copy for rollback.
 - A **release tarball** (`.tgz` / `.tar.gz`): unpacked per deploy to `/opt/<name>/releases/<sha>/`, with a `current` symlink repointed before the new version starts. For Elixir releases and anything that's a directory rather than a file:
 
 ```json
 "build": "MIX_ENV=prod mix release && tar -C _build/prod/rel -czf dist/app.tgz app",
 "artifact": "dist/app.tgz",
-"run": {"exec": "bin/app start", "port_env": "PORT"}
+"run": {"exec": "bin/app start"}
 ```
-
-- A **container image** (`image:<local tag>`): for runtimes that genuinely want a container — native dependencies, locales, a pinned OS. Your `build` leaves the tag in the local docker or podman; hadi saves it through zstd, streams it over SSH (no registry, ever), loads it on the box, and tags `localhost/<name>:<sha>` plus a moving `:current` tag — the image analogue of the `current` symlink:
-
-```json
-"build": "docker build -t app:release .",
-"artifact": "image:app:release"
-```
-
-On the box the container runs under the same generated template unit as any service — rootful podman, foreground, journald logs — with privileges dropped inside the container (`--user` as `run.user`, `--cap-drop=all`). `run.exec` must be absent (the image's CMD/ENTRYPOINT is the command); the sandbox knobs map to container equivalents (`read_write_paths` → bind mounts, `ambient_caps` → `--cap-add`, `env_extra` → `--env`). The env file contract tightens: podman reads `/etc/<name>/env` literally, so values must be unquoted (`hadi env` enforces this). `hadi check` prints the exact unit and which engine holds the tag. Full walkthrough: [docker.md](docker.md).
 
 Retention: the last 5 artifacts stay on each box; older ones are pruned on deploy (image prune is ledger-driven, so a rollback target is never evicted). Retention depth equals rollback depth. Rollback refuses to cross an artifact-kind switch — a sha deployed as a tarball can't be restored by an image-era deploy.json; the error tells you to restore that era's config and deploy.
 
@@ -126,15 +137,15 @@ A file named `<name>@.service` in there is ignored; hadi generates that one.
 
 hadi generates the service's systemd unit from these knobs. One template in one codebase means the unit on the box can never drift from the repo.
 
-### run.port_env (required)
+### run.port_env
 
-The environment variable your service reads its listen port from:
+The environment variable your service reads its listen port from. Default `PORT` — the convention nearly every runtime and framework already follows. Set it only when your service reads a different variable:
 
 ```json
-"run": {"port_env": "PORT"}
+"run": {"port_env": "HTTP_PORT"}
 ```
 
-hadi injects the color's port through it. The env file must not set this variable; `hadi env` refuses to ship one that does.
+hadi injects the color's port through it. The env file must not set this variable; `hadi env` refuses to ship one that does. If your service doesn't actually read it, the new color never passes health verification and the deploy aborts with the old version still serving — a loud failure, not a silent one.
 
 ### run.user
 
