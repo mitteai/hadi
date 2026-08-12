@@ -282,6 +282,15 @@ func cmdCheck() {
 	}
 	ui.Say("colors    %d / %d   health %s   ready_timeout %ds   stop_timeout %ds",
 		c.Colors[0], c.Colors[1], c.Health, c.Run.ReadyTimeout, c.Run.StopTimeout)
+	if c.Inferred {
+		ui.Say("build     %s   (default: Dockerfile found)", c.Build)
+	} else if !c.IsImage() {
+		// An ignored Dockerfile must never be a silent mystery: explicit
+		// build/artifact wins, and this one line says so.
+		if _, err := os.Stat("Dockerfile"); err == nil {
+			ui.Say("note      Dockerfile present but unused: artifact is %s", c.Artifact)
+		}
+	}
 	if c.IsImage() {
 		if engine, err := resolveEngine(c.ImageRef()); err == nil {
 			ui.Say("artifact  image %s (found via %s; ships as save|zstd|load, no registry)", c.ImageRef(), engine)

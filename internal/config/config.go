@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -70,6 +72,11 @@ type Config struct {
 	Files      map[string]string `json:"files"`
 	ExtraUnits string            `json:"extra_units"`
 	Hooks      Hooks             `json:"hooks"`
+
+	// Inferred marks build/artifact as filled from a Dockerfile rather than
+	// written in deploy.json. Never persisted: the box snapshot stores the
+	// resolved build/artifact values themselves.
+	Inferred bool `json:"-"`
 }
 
 // Load reads, validates, and applies defaults.
@@ -84,6 +91,7 @@ func Load(path string) (*Config, error) {
 	if err := dec.Decode(&c); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	c.inferDockerDefault(filepath.Dir(path))
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -110,14 +118,18 @@ func (c *Config) Validate() error {
 	if c.Entry.Port != 0 && c.Entry.Domain != "" {
 		add("entry", "port and domain are mutually exclusive: pick where traffic enters")
 	}
-	if c.Run.PortEnv == "" {
-		add("run.port_env", "required: the env var your service reads its listen port from")
+	if c.Artifact == "" {
+		add("artifact", `nothing to ship — add a Dockerfile next to deploy.json (hadi will build and deploy it), or set "build"/"artifact" to ship a binary or release tarball`)
 	}
 	if len(c.Colors) != 0 && len(c.Colors) != 2 {
 		add("colors", "exactly two internal ports when set; omit for defaults")
 	}
 	if c.IsImage() && c.Run.Exec != "" {
-		add("run.exec", "meaningless for image artifacts: the container runs its own CMD/ENTRYPOINT")
+		msg := "meaningless for image artifacts: the container runs its own CMD/ENTRYPOINT"
+		if c.Inferred {
+			msg += ` (artifact was inferred from the Dockerfile; set "build"/"artifact" explicitly to ship a binary instead)`
+		}
+		add("run.exec", msg)
 	}
 	if c.IsImage() && c.ImageRef() == "" {
 		add("artifact", `image artifacts are "image:<local tag>", e.g. "image:mitte:release"`)
@@ -128,10 +140,41 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// inferDockerDefault makes the Dockerfile the paved road: when deploy.json
+// says nothing about building or shipping and a Dockerfile sits next to it,
+// both fill in — build via whichever local engine is installed, artifact as
+// image:<name>:hadi (a local scratch tag; boxes only ever see localhost/
+// tags). Explicit build or artifact disables this entirely, and hadi never
+// reads the Dockerfile's contents — the build contract stays exactly as
+// shallow as it is for explicit configs.
+func (c *Config) inferDockerDefault(dir string) {
+	if c.Build != "" || c.Artifact != "" {
+		return
+	}
+	// The name feeds a shell command below; an invalid one is rejected by
+	// Validate anyway, but never interpolate it unchecked.
+	if !ValidName(c.Name) {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err != nil {
+		return
+	}
+	engine := "docker"
+	if _, err := exec.LookPath("docker"); err != nil {
+		engine = "podman"
+	}
+	c.Build = fmt.Sprintf("%s build --platform linux/amd64 -t %s:hadi .", engine, c.Name)
+	c.Artifact = "image:" + c.Name + ":hadi"
+	c.Inferred = true
+}
+
 // ApplyDefaults fills every optional knob. Config states only what deviates.
 func (c *Config) ApplyDefaults() {
 	if c.Run.User == "" {
 		c.Run.User = c.Name
+	}
+	if c.Run.PortEnv == "" {
+		c.Run.PortEnv = "PORT"
 	}
 	if c.Run.Exec == "" && !c.IsImage() {
 		c.Run.Exec = fmt.Sprintf("/opt/%s/bin/%s", c.Name, c.Name)
