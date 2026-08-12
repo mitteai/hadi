@@ -77,6 +77,11 @@ type Config struct {
 	// written in deploy.json. Never persisted: the box snapshot stores the
 	// resolved build/artifact values themselves.
 	Inferred bool `json:"-"`
+
+	// noLocalEngine: a Dockerfile is present and inference would fire, but
+	// neither docker nor podman is installed. Validate turns this into the
+	// real error instead of a misleading "nothing to ship".
+	noLocalEngine bool
 }
 
 // Load reads, validates, and applies defaults.
@@ -119,7 +124,11 @@ func (c *Config) Validate() error {
 		add("entry", "port and domain are mutually exclusive: pick where traffic enters")
 	}
 	if c.Artifact == "" {
-		add("artifact", `nothing to ship — add a Dockerfile next to deploy.json (hadi will build and deploy it), or set "build"/"artifact" to ship a binary or release tarball`)
+		if c.noLocalEngine {
+			add("build", `a Dockerfile is next to deploy.json but neither docker nor podman is installed locally — install one to deploy it, or set "build"/"artifact" to ship a binary or release tarball`)
+		} else {
+			add("artifact", `nothing to ship — add a Dockerfile next to deploy.json (hadi will build and deploy it), or set "build"/"artifact" to ship a binary or release tarball`)
+		}
 	}
 	if len(c.Colors) != 0 && len(c.Colors) != 2 {
 		add("colors", "exactly two internal ports when set; omit for defaults")
@@ -161,6 +170,10 @@ func (c *Config) inferDockerDefault(dir string) {
 	}
 	engine := "docker"
 	if _, err := exec.LookPath("docker"); err != nil {
+		if _, err := exec.LookPath("podman"); err != nil {
+			c.noLocalEngine = true
+			return
+		}
 		engine = "podman"
 	}
 	c.Build = fmt.Sprintf("%s build --platform linux/amd64 -t %s:hadi .", engine, c.Name)

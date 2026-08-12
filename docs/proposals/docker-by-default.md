@@ -66,7 +66,7 @@ There is no parity gap to close. What remains is a default, a `check` line, and 
 
 ### The inference rule
 
-In `config.Load`, after validation, before `ApplyDefaults`:
+In `config.Load`, after decode and before `Validate` — validation must see the inferred artifact, so the "nothing to ship" check judges the config as resolved, not as written:
 
 > If `build` **and** `artifact` are both absent, and a file named `Dockerfile` exists in the same directory as `deploy.json`, set `build` to `docker build --platform linux/amd64 -t <name>:hadi .` and `artifact` to `image:<name>:hadi`.
 

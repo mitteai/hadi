@@ -17,15 +17,27 @@ func write(t *testing.T, content string) string {
 }
 
 // writeWithDockerfile puts a Dockerfile next to deploy.json — the trigger for
-// the docker-by-default inference.
+// the docker-by-default inference — and a fake docker on PATH, so inference
+// tests pass on machines with any combination of engines installed.
 func writeWithDockerfile(t *testing.T, content string) string {
 	t.Helper()
+	fakeEngine(t, "docker")
 	p := write(t, content)
 	df := filepath.Join(filepath.Dir(p), "Dockerfile")
 	if err := os.WriteFile(df, []byte("FROM scratch\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// fakeEngine makes PATH hold exactly one executable with the given name.
+func fakeEngine(t *testing.T, name string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
 }
 
 func TestMinimalConfigDefaults(t *testing.T) {
@@ -92,11 +104,41 @@ func TestDockerfileInference(t *testing.T) {
 	if !c.IsImage() || c.ImageRef() != "forms:hadi" {
 		t.Errorf("artifact = %q, want image:forms:hadi", c.Artifact)
 	}
-	if !strings.Contains(c.Build, " build --platform linux/amd64 -t forms:hadi .") {
+	if c.Build != "docker build --platform linux/amd64 -t forms:hadi ." {
 		t.Errorf("build = %q", c.Build)
 	}
-	if !strings.HasPrefix(c.Build, "docker ") && !strings.HasPrefix(c.Build, "podman ") {
-		t.Errorf("build = %q, want a local engine", c.Build)
+}
+
+func TestInferenceFallsBackToPodman(t *testing.T) {
+	fakeEngine(t, "podman") // and no docker on PATH
+	p := write(t, `{
+		"name": "forms", "zone": "example.com",
+		"entry": {"domain": "forms.example.com"}
+	}`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(p), "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Build != "podman build --platform linux/amd64 -t forms:hadi ." {
+		t.Errorf("build = %q, want podman fallback", c.Build)
+	}
+}
+
+func TestNoLocalEngineNamesTheRealProblem(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // neither docker nor podman findable
+	p := write(t, `{
+		"name": "forms", "zone": "example.com",
+		"entry": {"domain": "forms.example.com"}
+	}`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(p), "Dockerfile"), []byte("FROM scratch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(p)
+	if err == nil || !strings.Contains(err.Error(), "neither docker nor podman") {
+		t.Errorf(`want the engine error, not "nothing to ship", got: %v`, err)
 	}
 }
 

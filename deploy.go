@@ -292,12 +292,16 @@ func cmdCheck() {
 		}
 	}
 	if c.IsImage() {
+		prov := ""
+		if c.Inferred {
+			prov = "   (default: Dockerfile found)"
+		}
 		if engine, err := resolveEngine(c.ImageRef()); err == nil {
-			ui.Say("artifact  image %s (found via %s; ships as save|zstd|load, no registry)", c.ImageRef(), engine)
+			ui.Say("artifact  image %s (found via %s; ships as save|zstd|load, no registry)%s", c.ImageRef(), engine, prov)
 		} else {
 			// Absent is allowed pre-build, same rule as file artifacts; the
 			// ambiguity error is worth surfacing verbatim.
-			ui.Say("artifact  image %s (%v)", c.ImageRef(), err)
+			ui.Say("artifact  image %s (%v)%s", c.ImageRef(), err, prov)
 		}
 		ui.Say("          box tags %s:<sha> + :current · runs as uid of %q via rootful podman", c.BoxImage(), c.Run.User)
 		if c.Hooks.OnceBeforeFlip != "" {
