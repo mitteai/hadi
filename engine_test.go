@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mitteai/hadi/internal/caddy"
 	"github.com/mitteai/hadi/internal/config"
 )
 
@@ -423,5 +424,35 @@ func TestRestoreCmdKindBoundary(t *testing.T) {
 	cmd, err = restoreCmd(f, testCfg(), "bin7777")
 	if err != nil || !strings.Contains(cmd, "install -m 0755") {
 		t.Errorf("legacy restore changed: %q, %v", cmd, err)
+	}
+}
+
+func TestEnsureSkipsReloadWhenCaddyConfigUnchanged(t *testing.T) {
+	c := testCfg()
+	f := newFakeBox(
+		rule{match: "cat /etc/caddy/Caddyfile", out: caddy.MainCaddyfile},
+		rule{match: "cat /etc/caddy/hadi/svc.caddy", out: caddy.RenderSite(c, c.Colors[0])},
+	)
+	if err := ensureBox(f, c); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if f.didRun("systemctl reload caddy") {
+		t.Error("unchanged config must not reload caddy (a reload is a WebSocket disconnect wave)")
+	}
+	if !f.didRun("systemctl is-active --quiet caddy || systemctl restart caddy") {
+		t.Error("caddy must still be converged to enabled + running")
+	}
+	if _, pushed := f.pushes["/etc/caddy/hadi/svc.caddy"]; pushed {
+		t.Error("unchanged site must not be re-pushed")
+	}
+}
+
+func TestEnsureReloadsWhenSiteChanged(t *testing.T) {
+	f := newFakeBox(rule{match: "cat /etc/caddy/hadi/svc.caddy", out: ":4002 {\n reverse_proxy 127.0.0.1:4003\n}"})
+	if err := ensureBox(f, testCfg()); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if !f.didRun("systemctl reload caddy") {
+		t.Error("changed site must reload caddy")
 	}
 }

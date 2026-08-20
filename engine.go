@@ -134,17 +134,31 @@ fi`, c.Run.User, c.Name, dirs, runtime)
 	// Main Caddyfile is hadi-owned: converge it whenever it differs from the
 	// blessed content (first migration, or a template update like the
 	// trusted_proxies addition), not only when the import line is missing.
+	changed := false
 	main, _ := cl.Run("cat /etc/caddy/Caddyfile 2>/dev/null || true")
 	if strings.TrimSpace(main) != strings.TrimSpace(caddy.MainCaddyfile) {
 		if err := cl.Push([]byte(caddy.MainCaddyfile), "/etc/caddy/Caddyfile", "0644"); err != nil {
 			return err
 		}
+		changed = true
 	}
 	// Site config, preserving the detected active color.
-	if err := cl.Push([]byte(caddy.RenderSite(c, active)), caddy.SitePath(c.Name), "0644"); err != nil {
-		return err
+	site := caddy.RenderSite(c, active)
+	current, _ := cl.Run("cat " + caddy.SitePath(c.Name) + " 2>/dev/null || true")
+	if strings.TrimSpace(current) != strings.TrimSpace(site) {
+		if err := cl.Push([]byte(site), caddy.SitePath(c.Name), "0644"); err != nil {
+			return err
+		}
+		changed = true
 	}
-	if out, err := cl.Run("systemctl enable caddy >/dev/null 2>&1; systemctl reload caddy 2>/dev/null || systemctl restart caddy"); err != nil {
+	// Reload only on a real config change: a reload is not free for streamed
+	// connections, and the flip reloads anyway. An unchanged box just needs
+	// caddy enabled and running.
+	converge := "systemctl enable caddy >/dev/null 2>&1; systemctl is-active --quiet caddy || systemctl restart caddy"
+	if changed {
+		converge = "systemctl enable caddy >/dev/null 2>&1; systemctl reload caddy 2>/dev/null || systemctl restart caddy"
+	}
+	if out, err := cl.Run(converge); err != nil {
 		return fmt.Errorf("caddy reload: %w\n%s", err, out)
 	}
 	ui.Step(cl.Addr(), "ensure", "caddy + dirs + site (idempotent)", time.Since(t), true)

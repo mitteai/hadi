@@ -35,7 +35,7 @@ Per box, sequentially, stopping at the first failure:
 5. **start** the idle color. The unit injects the color's port through `run.port_env`.
 6. **verify**: poll `http://127.0.0.1:<idle-port><health>` until healthy or `ready_timeout_sec`. On failure: print the color's journal tail and last health response, stop it, exit 1. The live color was never touched.
 7. **hook** `once_before_flip` (first box only). A failed migration aborts here, old version still serving.
-8. **flip**: rewrite the site config's upstream port, `systemctl reload caddy`. The reload is graceful; no connection is dropped.
+8. **flip**: rewrite the site config's upstream port, `systemctl reload caddy`. The reload is graceful: in-flight requests finish, and streamed connections (WebSockets) stay on the old color thanks to `stream_close_delay` until that color drains and closes them itself.
 9. **confirm**: one request through Caddy's own listener. Verifying the color proves the service; only this proves the flip. On failure: flip back, stop the new color, exit 1.
 10. **retire**: enable the new color for boot, `systemctl stop --no-block` the old one. It drains in-flight work on its own schedule, up to `stop_timeout_sec`.
 11. **record**: write `hadi.json`, append the ledger, prune artifacts beyond the last 5.
