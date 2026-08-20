@@ -66,3 +66,12 @@ func TestActiveColorRejectsNoMarker(t *testing.T) {
 		t.Error("want error when no upstream found")
 	}
 }
+
+func TestRenderKeepsStreamsAcrossReload(t *testing.T) {
+	// Without stream_close_delay, every reload (ensure + flip) drops every
+	// proxied WebSocket at once; clients reconnect in lockstep.
+	site := RenderSite(cfg(config.Entry{Port: 4002}), 4003)
+	if !strings.Contains(site, "stream_close_delay "+StreamCloseDelay) {
+		t.Errorf("stream_close_delay missing:\n%s", site)
+	}
+}
