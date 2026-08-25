@@ -65,6 +65,7 @@ Read more about Hadi commands: [Commands](docs/commands.md).
 - [Deploying without Docker](docs/no-docker.md): ship a plain binary or release tarball — same commands
 - [Requirements](docs/requirements.md): what boxes need, with a preflight checklist
 - [Commands](docs/commands.md): every command, its flags, and examples
+- [Environment](docs/env.md): the box is the source of truth; every change is a verified flip
 - [deploy.json](docs/config.md): every option, with defaults and examples
 - [CI](docs/ci.md): the complete workflow, one secret, version pinning
 - [DNS and inventory](docs/dns.md): the two record families and why DNS is the registry
