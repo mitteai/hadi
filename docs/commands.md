@@ -55,6 +55,8 @@ The box is the source of truth for a service's environment. Every change applies
 
 hadi refuses to ship an env that sets `run.port_env`: the unit injects the per-color port, and an env value would override it and break the flip.
 
+Full doc — guardrails, drift, what rollback doesn't restore: [env.md](env.md).
+
 ```bash
 hadi env edit -s api                        # $EDITOR; save ships + flips, abort does nothing
 hadi env set -s api STRIPE_KEY=sk_live_xxx  # rotate one secret
