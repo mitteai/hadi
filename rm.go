@@ -75,6 +75,17 @@ func cmdRm(service, zone, hostFlag, sshKeyFlag string, dryRun, force bool) {
 	if err != nil {
 		ui.Fail("%v", err)
 	}
+	// No hadi.json: the first deploy never went green, but ensure already wrote
+	// units, a Caddy site and dirs. --force clears them (CI teardown); a human
+	// still gets the refusal, since a typo'd name looks exactly like this.
+	if (st == nil || st.Config == nil) && force && !dryRun {
+		err := ctx.eachBox(func(cl *sshx.Client, first bool) error { return removeLeftovers(cl, service) })
+		if err != nil {
+			ui.Fail("%v", err)
+		}
+		ui.Say("%s had no hadi.json; half-provisioned leftovers removed", service)
+		return
+	}
 	if st == nil || st.Config == nil {
 		ui.Fail("%s has no hadi.json on %s — nothing hadi-deployed to remove.\n(Half-provisioned leftovers, by hand: rm -rf /opt/%s /etc/%s /etc/caddy/hadi/%s.caddy /etc/systemd/system/%s@.service && systemctl daemon-reload && systemctl reload caddy)",
 			service, boxes[0], service, service, service, service)
@@ -129,6 +140,25 @@ func imageNote(c *config.Config) string {
 		return " · podman images " + c.BoxImage()
 	}
 	return ""
+}
+
+// removeLeftovers clears a service that has no hadi.json to describe it: the
+// same files removeService removes, found by name alone. Colors are unknown,
+// so units stop by glob.
+func removeLeftovers(cl box, name string) error {
+	if !config.ValidName(name) {
+		return fmt.Errorf("refusing to remove service with unsafe name %q", name)
+	}
+	if err := lock(cl, name); err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf(
+		"systemctl stop '%[1]s@*' 2>/dev/null || true; systemctl disable '%[1]s@*' 2>/dev/null || true; rm -f /etc/systemd/system/%[1]s@.service && systemctl daemon-reload; rm -f %[2]s && (systemctl reload caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || true); rm -rf /opt/%[1]s /etc/%[1]s",
+		name, caddy.SitePath(name))
+	if out, err := cl.Run(cmd); err != nil {
+		return fmt.Errorf("[%s] remove leftovers: %w\n%s", cl.Addr(), err, out)
+	}
+	return nil
 }
 
 // removeService tears one service off one box. Every step tolerates absence
