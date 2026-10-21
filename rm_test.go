@@ -139,3 +139,37 @@ var errBoom = errStr("boom")
 type errStr string
 
 func (e errStr) Error() string { return string(e) }
+
+// A service whose first deploy never went green has units, a Caddy site and
+// dirs but no hadi.json. rm --force must still clear it: a preview that fails
+// its first front-door check is exactly this, and its site asks for certs forever.
+func TestRemoveLeftoversClearsAHalfProvisionedService(t *testing.T) {
+	f := newFakeBox()
+	if err := removeLeftovers(f, "socket-pr-492"); err != nil {
+		t.Fatalf("removeLeftovers: %v", err)
+	}
+	for _, want := range []string{
+		"hadi.lock",
+		"systemctl stop 'socket-pr-492@*'",
+		"rm -f /etc/systemd/system/socket-pr-492@.service",
+		"rm -f /etc/caddy/hadi/socket-pr-492.caddy",
+		"reload caddy",
+		"rm -rf /opt/socket-pr-492 /etc/socket-pr-492",
+	} {
+		if !f.didRun(want) {
+			t.Errorf("missing step: %q\nran: %s", want, strings.Join(f.ran, "\n     "))
+		}
+	}
+}
+
+func TestRemoveLeftoversRefusesUnsafeNames(t *testing.T) {
+	for _, name := range []string{"", "..", "a b", "x;rm -rf /"} {
+		f := newFakeBox()
+		if err := removeLeftovers(f, name); err == nil {
+			t.Errorf("name %q must be refused", name)
+		}
+		if len(f.ran) != 0 {
+			t.Errorf("name %q: nothing may run, ran %v", name, f.ran)
+		}
+	}
+}
